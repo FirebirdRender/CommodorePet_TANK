@@ -567,13 +567,10 @@ class GameController:
         if self.state == GameState.TOURNAMENT_END:
             for event in events:
                 if event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE or event.key == pygame.K_q:
+                    if event.key in (
+                        pygame.K_ESCAPE, pygame.K_RETURN, pygame.K_SPACE,
+                    ):
                         self.state = GameState.QUIT
-                    elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                        # Restart from menu
-                        self.state = GameState.MENU
-                        self.battles_played = 0
-                        self.wins = {1: 0, 2: 0}
             return
 
         if self.state == GameState.SHOWDOWN_COMPLETE:
