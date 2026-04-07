@@ -157,6 +157,99 @@ def _tick_parallel_showdown(controller: GameController) -> None:
             controller.state = GameState.SHOWDOWN_COMPLETE
 
 
+_MENU_STATES = frozenset({
+    GameState.MENU,
+    GameState.GAME_MODE_SELECT,
+    GameState.SKILL_SELECT,
+    GameState.SHOWDOWN_SCHEDULE_TYPE,
+    GameState.SHOWDOWN_ITERATIONS,
+    GameState.SHOWDOWN_MATRIX_ROUNDS,
+    GameState.SHOWDOWN_MATRIX_CONFIRM,
+})
+
+_TITLE_TEXT = (
+    "TANK!   BY SHAWN MEEHAN\n"
+    "             & MIKE ROWLEY\n"
+    "\n"
+    "    CURSOR #26  COPYRIGHT (C) 1981\n"
+    "    ________________________________\n"
+    "\n"
+    "PATTON VS.THE DESERT FOX\n"
+    "\n"
+    "\n"
+    "PRESS RETURN TO BEGIN"
+)
+
+
+def _render_menu_text(
+    screen: pygame.Surface,
+    controller: GameController,
+    overlay: MessageOverlay,
+) -> None:
+    """Render menu/selection text on a clean black screen (no playfield)."""
+    state = controller.state
+
+    if state == GameState.MENU:
+        overlay.set_message(_TITLE_TEXT)
+    elif state == GameState.GAME_MODE_SELECT:
+        overlay.set_message(
+            "SELECT GAME MODE:\n\n"
+            "0 - DEMO (AI vs AI)\n"
+            "1 - ONE PLAYER (vs CPU)\n"
+            "2 - TWO PLAYER\n"
+            "3 - SHOWDOWN (AI vs AI races)"
+        )
+    elif state == GameState.SKILL_SELECT:
+        overlay.set_message(
+            f"WHAT SKILL LEVEL(1-10)? {controller.difficulty}\n"
+            "10 IS THE HARDEST"
+        )
+    elif state == GameState.SHOWDOWN_SCHEDULE_TYPE:
+        overlay.set_message(
+            "SHOWDOWN SCHEDULE:\n\n"
+            "1 / R - RANDOM PAIRINGS\n"
+            "    PICK TOTAL MATCH COUNT NEXT.\n\n"
+            "2 / M - FULL SKILL MATRIX\n"
+            "    EVERY AI-I VS AI-J (I,J IN 0..9),\n"
+            "    N ROUNDS PER PAIRING.\n\n"
+            f"{_headless_menu_hint(controller)}\n\n"
+            "ESC - BACK"
+        )
+    elif state == GameState.SHOWDOWN_ITERATIONS:
+        iterations = controller._showdown_input if hasattr(controller, "_showdown_input") else 100
+        overlay.set_message(
+            f"SHOWDOWN - RANDOM PAIRINGS\n"
+            f"TOTAL MATCHES: {iterations}\n\n"
+            "UP/DOWN +/-10   LEFT/RIGHT +/-1\n"
+            "ENTER - START\n"
+            "ESC - BACK\n\n"
+            f"{_headless_menu_hint(controller)}"
+        )
+    elif state == GameState.SHOWDOWN_MATRIX_ROUNDS:
+        r = getattr(controller, "_showdown_matrix_rounds_input", 10)
+        total_m = SHOWDOWN_MATRIX_CELLS * r
+        overlay.set_message(
+            f"MATRIX: ROUNDS PER PAIRING\n{r}\n\n"
+            f"TOTAL MATCHES: {total_m}  ({SHOWDOWN_MATRIX_CELLS} PAIRINGS X {r})\n\n"
+            "UP/DOWN +/-1   LEFT/RIGHT +/-10\n"
+            "ENTER - REVIEW & CONFIRM\n"
+            "ESC - BACK\n\n"
+            f"{_headless_menu_hint(controller)}"
+        )
+    elif state == GameState.SHOWDOWN_MATRIX_CONFIRM:
+        r = getattr(controller, "_showdown_matrix_rounds_input", 10)
+        total_m = SHOWDOWN_MATRIX_CELLS * r
+        overlay.set_message(
+            f"START MATRIX SHOWDOWN?\n\n"
+            f"{total_m} MATCHES  ({r} ROUNDS X {SHOWDOWN_MATRIX_CELLS} PAIRINGS)\n\n"
+            "ENTER - BEGIN\n"
+            "ESC - EDIT ROUNDS\n\n"
+            f"{_headless_menu_hint(controller)}"
+        )
+
+    overlay.draw(screen)
+
+
 def render_frame(
     screen: pygame.Surface,
     controller: GameController,
@@ -170,6 +263,12 @@ def render_frame(
         screen.fill((20, 22, 30))
         overlay.set_message(format_headless_showdown_dashboard(controller))
         overlay.draw(screen)
+        return
+
+    # Menu/selection screens: clean black background with text only (no playfield).
+    if controller.state in _MENU_STATES:
+        screen.fill((0, 0, 0))
+        _render_menu_text(screen, controller, overlay)
         return
 
     draw_board(screen, controller.board)
@@ -192,70 +291,12 @@ def render_frame(
             ai_difficulty=ai_diff,
         )
 
-    if controller.state == GameState.MENU:
-        overlay.set_message("PRESS ANY KEY TO START")
-        overlay.draw(screen)
-    elif controller.state == GameState.GAME_MODE_SELECT:
-        overlay.set_message(
-            "SELECT GAME MODE:\n0 - DEMO (AI vs AI)\n1 - ONE PLAYER (vs CPU)\n"
-            "2 - TWO PLAYER\n3 - SHOWDOWN (AI vs AI races)"
-        )
-        overlay.draw(screen)
-    elif controller.state == GameState.SKILL_SELECT:
-        overlay.set_message(f"SELECT SKILL LEVEL (1-10): {controller.difficulty}")
-        overlay.draw(screen)
-    elif controller.state == GameState.SHOWDOWN_RUNNING:
+    if controller.state == GameState.SHOWDOWN_RUNNING:
         current = controller._showdown_current if hasattr(controller, "_showdown_current") else 0
         total = (
             controller._showdown_iterations if hasattr(controller, "_showdown_iterations") else 0
         )
         overlay.set_message(f"SHOWDOWN IN PROGRESS...\n\nMatch {current} of {total}")
-        overlay.draw(screen)
-    elif controller.state == GameState.SHOWDOWN_SCHEDULE_TYPE:
-        overlay.set_message(
-            "SHOWDOWN SCHEDULE:\n\n"
-            "1 / R — Random pairings (existing)\n"
-            "   Pick total match count next.\n\n"
-            "2 / M — Full skill matrix\n"
-            "   Every AI-i vs AI-j (i,j in 0..9),\n"
-            "   N rounds per pairing → 100×N matches.\n\n"
-            f"{_headless_menu_hint(controller)}\n\n"
-            "ESC — back"
-        )
-        overlay.draw(screen)
-    elif controller.state == GameState.SHOWDOWN_MATRIX_ROUNDS:
-        r = getattr(controller, "_showdown_matrix_rounds_input", 10)
-        total_m = SHOWDOWN_MATRIX_CELLS * r
-        overlay.set_message(
-            f"MATRIX: ROUNDS PER PAIRING\n{r}\n\n"
-            f"Total matches: {total_m}  ({SHOWDOWN_MATRIX_CELLS} pairings × {r})\n\n"
-            "UP/DOWN ±1   LEFT/RIGHT ±10\n"
-            "ENTER — review & confirm\n"
-            "ESC — back\n\n"
-            f"{_headless_menu_hint(controller)}"
-        )
-        overlay.draw(screen)
-    elif controller.state == GameState.SHOWDOWN_MATRIX_CONFIRM:
-        r = getattr(controller, "_showdown_matrix_rounds_input", 10)
-        total_m = SHOWDOWN_MATRIX_CELLS * r
-        overlay.set_message(
-            f"START MATRIX SHOWDOWN?\n\n"
-            f"{total_m} matches  ({r} rounds × {SHOWDOWN_MATRIX_CELLS} pairings)\n\n"
-            "ENTER — begin\n"
-            "ESC — edit rounds\n\n"
-            f"{_headless_menu_hint(controller)}"
-        )
-        overlay.draw(screen)
-    elif controller.state == GameState.SHOWDOWN_ITERATIONS:
-        iterations = controller._showdown_input if hasattr(controller, "_showdown_input") else 100
-        overlay.set_message(
-            f"SHOWDOWN — RANDOM PAIRINGS\n"
-            f"Total matches: {iterations}\n\n"
-            "UP/DOWN ±10   LEFT/RIGHT ±1\n"
-            "ENTER — start\n"
-            "ESC — back\n\n"
-            f"{_headless_menu_hint(controller)}"
-        )
         overlay.draw(screen)
     elif controller.state == GameState.SHOWDOWN_COMPLETE:
         summary_file = (
