@@ -1,5 +1,9 @@
 ## Changelog
 
+### 0.7.1 - 2026-04-07
+
+- **Fix: 1P AI speed scaling.** The 0.7.0 skill-table overhaul removed `fast_mode` / `user_difficulty` but forgot to pass `move_delay` to the 1P `AIPlayer` constructor. The AI received its raw SHOWDOWN-tuned `reaction_time` (as low as 0.020s) while the human was gated by the difficulty-based `_move_delay` (0.1s-1.0s), making the AI impossibly fast at every level. Now passes `move_delay=self._move_delay` so `get_ai_config` scales reaction time proportionally to game speed.
+
 ### 0.7.0 - 2026-04-07
 
 AI skill ladder overhaul: every parameter for skill levels 0-9 is now **unique and strictly monotonic**, stored in an explicit `_SKILL_TABLE` lookup. No more tier bands, `// 3` banding, boolean thresholds, or shared presets.

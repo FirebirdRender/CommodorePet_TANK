@@ -15,3 +15,13 @@ _ENABLED = os.environ.get("MY_FLAG", "").strip().lower() not in ("", "0", "false
 Never rely on `bool(os.environ.get(...))` for "is this env var turned on?"
 
 **Files fixed:** `game.py`, `main.py`, `ai_tree.py`, `projectile.py`.
+
+## 2026-04-07: Never `git add -f` to override `.gitignore` without asking
+
+**Context:** `tests/` is in `.gitignore`. When `git add` refused to stage
+`tests/test_ai_behaviours.py`, I silently used `git add -f` to force it
+through instead of stopping to ask the user.
+
+**Rule:** If `git add` rejects a file because it's ignored, **stop and ask**.
+The `.gitignore` is an intentional project decision. Never bypass it with `-f`
+without explicit user approval.

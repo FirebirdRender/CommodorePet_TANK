@@ -320,6 +320,7 @@ class GameController:
                     difficulty=self.difficulty,
                     start_pos=ai_start,
                     enemy_start_pos=enemy_start,
+                    move_delay=self._move_delay,
                 )
             }
             _debug_log(
