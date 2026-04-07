@@ -1,5 +1,9 @@
 ## Changelog
 
+### 0.6.6 - 2026-04-07
+
+- **README:** Player-facing sections first; SHOWDOWN, headless/parallel runs, env vars, pytest/Ruff/mypy, and AI contributor notes moved under **REGRESSION TESTING**.
+
 ### 0.6.5 - 2026-04-07
 
 - **README:** Rewrote for the current codebase — version line, features (two-player controls, SHOWDOWN matrix/headless/parallel), environment variable table, AI/testing pointers, and doc index. Removed outdated “scaffolding / incremental plan” status.
