@@ -764,7 +764,9 @@ class GameController:
                     self._swing_state[player_id] = None  # Reset after move
                 else:
                     # First press in a new direction - just swing, don't move
+                    tank._clear_barrel(self.board)
                     tank.direction = desired_direction
+                    tank._place_barrel(self.board)
                     self._swing_state[player_id] = desired_direction
 
         # Clear newly pressed keys after processing
@@ -1359,7 +1361,9 @@ class GameController:
         if action == AIAction.RISKY_PREPARE:
             # FR-8: turn barrel toward jitter; next decision fires like a human (no direction_override)
             if getattr(ai, "_risky_wild_state", None) == "pending_aim":
+                ai_tank._clear_barrel(self.board)
                 ai_tank.direction = ai._risky_jitter_direction
+                ai_tank._place_barrel(self.board)
                 ai._risky_wild_state = "ready_to_fire"
                 _debug_log(f"AI[{player_id}] risky prepare aim -> {ai_tank.direction.name}")
         elif action == AIAction.FIRE:
@@ -1368,7 +1372,9 @@ class GameController:
                 ai._pending_fire_risky = False
                 if risky:
                     self._fire_shot(ai_tank)
+                    ai_tank._clear_barrel(self.board)
                     ai_tank.direction = ai._risky_saved_direction
+                    ai_tank._place_barrel(self.board)
                     ai._risky_wild_state = "idle"
                     _debug_log(
                         f"AI[{player_id}] risky fire done, barrel restored -> {ai_tank.direction.name}"
@@ -1439,7 +1445,9 @@ class GameController:
 
         elif action == AIAction.SCAN:
             scan_dir = ai.get_scan_direction()
+            ai_tank._clear_barrel(self.board)
             ai_tank.direction = scan_dir
+            ai_tank._place_barrel(self.board)
             _debug_log(f"AI[{player_id}] scanned: {scan_dir}")
 
         elif action == AIAction.RANDOM_MOVE:

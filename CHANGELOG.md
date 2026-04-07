@@ -1,5 +1,9 @@
 ## Changelog
 
+### 0.9.4 - 2026-04-07
+
+- **Fix ghost barrel on direction swing:** Barrel swing (first keypress in a new direction) now properly clears the old barrel cell and places the new one. Previously, changing direction without moving left a phantom BARREL cell on the board that could be hit by incoming shots. Also fixed the same bug in AI barrel-direction changes (risky aim, risky restore, scan).
+
 ### 0.9.3 - 2026-04-07
 
 - **HUD inverted text:** Top-row labels and values now render as black glyphs on a green bar (inverted/reverse-video), matching the original PET look. Previously rendered green-on-black.
