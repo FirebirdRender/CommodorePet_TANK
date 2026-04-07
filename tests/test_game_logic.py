@@ -79,23 +79,25 @@ def test_respawn_clears_old_tank_cells_from_board() -> None:
     board = controller.board
     t1, t2 = controller.tanks[1], controller.tanks[2]
 
+    sp1 = t1.start_pos
+    sp2 = t2.start_pos
     t1.clear_from_board(board)
-    t1.x, t1.y = 10, 12
+    t1.x, t1.y = 10, 10
     t1.occupy_board(board)
     t2.clear_from_board(board)
-    t2.x, t2.y = 30, 12
+    t2.x, t2.y = 30, 10
     t2.occupy_board(board)
 
-    assert board.get_cell(10, 12).type == CellType.TANK1
-    assert board.get_cell(30, 12).type == CellType.TANK2
-    assert board.get_cell(2, 12).type == CellType.EMPTY
+    assert board.get_cell(10, 10).type == CellType.TANK1
+    assert board.get_cell(30, 10).type == CellType.TANK2
+    assert board.get_cell(sp1[0], sp1[1]).type == CellType.EMPTY
 
     controller._respawn_both_tanks()
 
-    assert board.get_cell(10, 12).type == CellType.EMPTY
-    assert board.get_cell(30, 12).type == CellType.EMPTY
-    assert board.get_cell(2, 12).type == CellType.TANK1
-    assert board.get_cell(board.width - 3, 12).type == CellType.TANK2
+    assert board.get_cell(10, 10).type == CellType.EMPTY
+    assert board.get_cell(30, 10).type == CellType.EMPTY
+    assert board.get_cell(sp1[0], sp1[1]).type == CellType.TANK1
+    assert board.get_cell(sp2[0], sp2[1]).type == CellType.TANK2
 
     counts: Counter[CellType] = Counter()
     for y in range(board.height):

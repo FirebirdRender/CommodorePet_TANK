@@ -294,22 +294,22 @@ class GameController:
             1: Tank(
                 player_id=1,
                 x=2,
-                y=12,
+                y=10,
                 direction=Direction.RIGHT,
                 lives=tanks,
                 shots_left=shots,
                 mines_left=mines,
-                start_pos=(2, 12),
+                start_pos=(2, 10),
             ),
             2: Tank(
                 player_id=2,
                 x=self.board.width - 3,
-                y=12,
+                y=10,
                 direction=Direction.LEFT,
                 lives=tanks,
                 shots_left=shots,
                 mines_left=mines,
-                start_pos=(self.board.width - 3, 12),
+                start_pos=(self.board.width - 3, 10),
             ),
         }
         for tank in self.tanks.values():

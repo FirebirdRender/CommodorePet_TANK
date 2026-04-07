@@ -2,7 +2,7 @@ from __future__ import annotations
 
 # Logical board dimensions (Commodore PET: 40×25 character grid)
 SCREEN_WIDTH_CELLS: int = 40
-SCREEN_HEIGHT_CELLS: int = 25
+SCREEN_HEIGHT_CELLS: int = 21  # PET uses rows 2-22 of its 25-row screen
 
 # Pixel scaling
 CELL_SIZE: int = 20

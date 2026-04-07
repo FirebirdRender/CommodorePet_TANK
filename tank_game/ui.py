@@ -16,7 +16,6 @@ from .constants import (
     CELL_SIZE,
     COLOR_BG,
     COLOR_PET_FG,
-    COLOR_STATUS_BG,
     COLOR_TEXT,
     SCREEN_WIDTH_CELLS,
     STATUS_BAR_HEIGHT,
@@ -30,12 +29,12 @@ from .player import Tank
 # HUD occupies 2 character rows (each CELL_SIZE px high).
 _HUD_ROWS = STATUS_BAR_HEIGHT // CELL_SIZE  # 2
 
-# Column layout (40 columns total):
-#   P1 panel: cols 0..17  (18 chars)
-#   Center:   cols 18..21 (4 chars — circle separator)
-#   P2 panel: cols 22..39 (18 chars)
-_CENTER_START = 18
-_CENTER_END = 22  # exclusive
+# Column layout (40 columns total, matching PET):
+#   P1 panel: cols 0..18  (19 chars)
+#   Center:   cols 19..20 (2 chars — circle separator)
+#   P2 panel: cols 21..39 (19 chars)
+_CENTER_START = 19
+_CENTER_END = 21  # exclusive
 _P2_START = _CENTER_END
 
 
@@ -43,14 +42,13 @@ def _hud_text_row0(tank: Tank, ai_diff: int | None) -> str:
     """Row 0: ``TANKS  SHOTS  MINES``  (or + ``AI:n`` suffix)."""
     s = "TANKS  SHOTS  MINES"
     if ai_diff is not None:
-        # Trim to fit 18 cols if needed
         s = f"TANKS SHOTS MINES {ai_diff}"
-    return s[:18].ljust(18)
+    return s[:19].ljust(19)
 
 
 def _hud_text_row1(tank: Tank) -> str:
     """Row 1: numeric values aligned under labels."""
-    return f"  {tank.lives}      {tank.shots_left}      {tank.mines_left}".ljust(18)[:18]
+    return f"  {tank.lives}      {tank.shots_left}      {tank.mines_left}".ljust(19)[:19]
 
 
 def _player_status_message(tank: Tank, max_shots: int, is_winner: bool) -> str:
@@ -90,11 +88,11 @@ class StatusDisplay:
             for col in range(SCREEN_WIDTH_CELLS):
                 blit_glyph(surface, solid_ch, col * CELL_SIZE, py, fg, CELL_SIZE)
 
-        # 2. Center separator — circles
+        # 2. Center separator — inverted circles (dark circles on green bar)
         for row in range(_HUD_ROWS):
             py = row * CELL_SIZE
             for col in range(_CENTER_START, _CENTER_END):
-                blit_glyph(surface, sep_ch, col * CELL_SIZE, py, fg, CELL_SIZE)
+                blit_inverted(surface, sep_ch, col * CELL_SIZE, py, fg, COLOR_BG, CELL_SIZE)
 
         # 3. Player text panels (rendered as characters "punched" onto the bar)
         ai1 = ai_difficulty.get(1) if ai_difficulty else None
@@ -125,20 +123,18 @@ class StatusDisplay:
         row0: str,
         row1: str,
     ) -> None:
-        """Draw two rows of HUD text starting at *start_col*."""
+        """Draw two rows of inverted HUD text starting at *start_col*."""
         for i, ch in enumerate(row0):
             if ch == " ":
                 continue
             px = (start_col + i) * CELL_SIZE
-            pygame.draw.rect(surface, COLOR_STATUS_BG, (px, 0, CELL_SIZE, CELL_SIZE))
-            blit_glyph(surface, ch, px, 0, COLOR_PET_FG, CELL_SIZE)
+            blit_inverted(surface, ch, px, 0, COLOR_PET_FG, COLOR_BG, CELL_SIZE)
         for i, ch in enumerate(row1):
             if ch == " ":
                 continue
             px = (start_col + i) * CELL_SIZE
             py = CELL_SIZE
-            pygame.draw.rect(surface, COLOR_STATUS_BG, (px, py, CELL_SIZE, CELL_SIZE))
-            blit_glyph(surface, ch, px, py, COLOR_PET_FG, CELL_SIZE)
+            blit_inverted(surface, ch, px, py, COLOR_PET_FG, COLOR_BG, CELL_SIZE)
 
     def _draw_border_message(
         self,

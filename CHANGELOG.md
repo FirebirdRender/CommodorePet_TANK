@@ -1,5 +1,12 @@
 ## Changelog
 
+### 0.9.3 - 2026-04-07
+
+- **HUD inverted text:** Top-row labels and values now render as black glyphs on a green bar (inverted/reverse-video), matching the original PET look. Previously rendered green-on-black.
+- **Center separator narrowed:** Circle separator between player panels is 2 columns (was 4), matching the original PET layout.
+- **Panel width corrected:** Each player panel is 19 columns (was 18). Fixes "MINES" being truncated to "MINE" and improves text spacing.
+- **PET-authentic board dimensions:** Board resized from 40x25 to 40x21 to match the original PET playfield (rows 2-22 of the 25-row screen). Interior playfield is now 38x19. Window height reduced from 540px to 460px.
+
 ### 0.9.2 - 2026-04-07
 
 - **Explosion wreckage now visible:** Dice-pattern wreckage from tank explosions now correctly overwrites WALL cells (matching original PET behavior where explosions destroy surrounding terrain). Previously walls blocked wreckage placement, leaving 0-2 of 4 dots at higher difficulties.
