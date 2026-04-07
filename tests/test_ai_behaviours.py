@@ -203,13 +203,12 @@ def test_pick_evade_rim_sticks_vertical_when_enemy_y_changes(board: Board) -> No
         assert d2 == Direction.UP
 
 
-def test_effective_min_shots_includes_ammo_discipline() -> None:
+def test_effective_min_shots_uses_confidence_threshold() -> None:
     import math
 
     ai = AIPlayer(difficulty=5, start_pos=(2, 12), enemy_start_pos=(37, 12))
-    assert ai.effective_min_shots_for_aimed() == math.ceil(ai.config.confidence_threshold) + (
-        ai.config.ammo_discipline // 3
-    )
+    expected = max(1, 5 - math.ceil(ai.config.confidence_threshold))
+    assert ai.effective_min_shots_for_aimed() == expected
 
 
 def test_should_skip_fire_high_skill(monkeypatch: pytest.MonkeyPatch) -> None:

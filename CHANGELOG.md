@@ -1,5 +1,30 @@
 ## Changelog
 
+### 0.7.0 - 2026-04-07
+
+AI skill ladder overhaul: every parameter for skill levels 0-9 is now **unique and strictly monotonic**, stored in an explicit `_SKILL_TABLE` lookup. No more tier bands, `// 3` banding, boolean thresholds, or shared presets.
+
+**Config architecture:**
+- **`_map_cells(fraction)`** helper converts fractions of `min(map_width, map_height)` to integer cells; all range/radius parameters auto-scale if the map resizes.
+- **Expanded `AIConfig`:** new fields `peripheral_radius_pct`, `engage_range_pct`, `los_range_pct` (map-relative fractions), `risky_chance` (float 0-1 replacing boolean), `frustration_threshold`, `skip_fire_base`, `scan_when_blind`.
+- **`_SKILL_TABLE`**: 10 hand-tuned `AIConfig` entries with 13 strictly monotonic parameters (verified by `scripts/verify_skill_table.py`).
+- **`get_ai_config()`** indexes the table directly; `fast_mode` parameter eliminated.
+- **`effective_min_shots_for_aimed`**: inverted relationship — higher confidence = fewer reserves needed (stops penalizing top-skill AI).
+
+**Inline checks removed:**
+- All `self.difficulty >= N` comparisons in `AIPlayer` methods replaced with config field lookups (`engage_range`, `los_range`, `risky_chance`, `scan_when_blind`, `frustration_threshold`, `skip_fire_base`).
+- `aggressive_mines` changed from `bool` to `float` (0.0-1.0) for gradual mine-laying probability.
+- `risky_shot_viable` uses `risky_chance` probability instead of a binary gate.
+- `avoid_own_mines` confidence gate uses `scan_when_blind` flag.
+
+**Navigation:**
+- `NavigationConfig.sight_radius` and `greedy_distance` stored as `_pct` fractions, resolved to cells once in `NavigationMemory.__init__` via `_map_cells`.
+- Explicit `_NAV_TABLE` with 10 unique entries (no `// 2` banding).
+
+**Removed:** `fast_mode` parameter from `AIPlayer.__init__`, `get_ai_config`, and `game.py` `init_round`.
+
+**Validation (5040-match matrix):** aggregate win rate 34.7% (AI-0) → 59.6% (AI-8), AI-9 beats AI-8 at 53.6% H2H. Zero timeouts.
+
 ### 0.6.6 - 2026-04-07
 
 - **README:** Player-facing sections first; SHOWDOWN, headless/parallel runs, env vars, pytest/Ruff/mypy, and AI contributor notes moved under **REGRESSION TESTING**.

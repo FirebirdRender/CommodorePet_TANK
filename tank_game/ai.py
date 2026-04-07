@@ -55,7 +55,7 @@ class AIConfig:
     ammo_discipline: int
     engage_range_pct: float
     los_range_pct: float
-    risky_enabled: bool
+    risky_chance: float  # 0.0 = never attempt risky shots, 1.0 = always try
     frustration_threshold: int
     skip_fire_base: float
     scan_when_blind: bool
@@ -76,16 +76,16 @@ class AIConfig:
 # fmt: off
 _SKILL_TABLE: tuple[AIConfig, ...] = (
     #                react   periph  scan  mine_dec  conf   dodge  mines  disc  engage  los     risky frust  skip   scan_blind
-    AIConfig(        0.200,  0.12,    0,   0.30,     0.8,   0.00,  0.00,  0,   0.16,   0.16,   True,  50,   0.30,  False),  # 0
-    AIConfig(        0.170,  0.14,    1,   0.27,     1.0,   0.10,  0.05,  1,   0.20,   0.24,   True,  47,   0.27,  False),  # 1
-    AIConfig(        0.145,  0.18,    2,   0.24,     1.2,   0.20,  0.10,  2,   0.24,   0.32,   True,  44,   0.23,  False),  # 2
-    AIConfig(        0.120,  0.22,    3,   0.21,     1.5,   0.30,  0.20,  3,   0.28,   0.40,   True,  41,   0.20,  False),  # 3
-    AIConfig(        0.100,  0.24,    4,   0.18,     1.8,   0.40,  0.30,  4,   0.32,   0.48,   True,  38,   0.17,  False),  # 4
-    AIConfig(        0.080,  0.28,    5,   0.15,     2.2,   0.50,  0.45,  5,   0.36,   0.56,   True,  35,   0.13,  True),   # 5
-    AIConfig(        0.065,  0.32,    6,   0.12,     2.5,   0.60,  0.60,  6,   0.44,   0.72,   False, 32,   0.10,  True),   # 6
-    AIConfig(        0.050,  0.36,    7,   0.09,     2.8,   0.70,  0.75,  7,   0.56,   0.88,   False, 29,   0.07,  True),   # 7
-    AIConfig(        0.038,  0.40,    8,   0.06,     3.2,   0.80,  0.88,  8,   0.72,   1.20,   False, 26,   0.03,  True),   # 8
-    AIConfig(        0.025,  0.48,    9,   0.03,     3.8,   0.90,  1.00,  9,   1.60,   4.00,   False, 20,   0.00,  True),   # 9
+    AIConfig(        0.200,  0.12,    0,   0.30,     0.8,   0.00,  0.00,  0,   0.16,   0.20,   0.95,  50,   0.30,  False),  # 0
+    AIConfig(        0.170,  0.16,    1,   0.27,     1.0,   0.10,  0.05,  1,   0.20,   0.28,   0.85,  47,   0.27,  False),  # 1
+    AIConfig(        0.145,  0.20,    2,   0.24,     1.2,   0.20,  0.10,  2,   0.24,   0.36,   0.75,  44,   0.23,  False),  # 2
+    AIConfig(        0.120,  0.24,    3,   0.21,     1.5,   0.30,  0.20,  3,   0.28,   0.44,   0.65,  41,   0.20,  False),  # 3
+    AIConfig(        0.100,  0.28,    4,   0.18,     1.8,   0.40,  0.30,  4,   0.32,   0.52,   0.55,  38,   0.17,  False),  # 4
+    AIConfig(        0.080,  0.32,    5,   0.15,     2.2,   0.50,  0.45,  5,   0.40,   0.64,   0.42,  35,   0.13,  True),   # 5
+    AIConfig(        0.065,  0.36,    6,   0.12,     2.5,   0.60,  0.60,  6,   0.48,   0.76,   0.30,  32,   0.10,  True),   # 6
+    AIConfig(        0.050,  0.40,    7,   0.09,     2.8,   0.70,  0.75,  7,   0.56,   0.88,   0.18,  29,   0.07,  True),   # 7
+    AIConfig(        0.038,  0.44,    8,   0.06,     3.2,   0.80,  0.88,  8,   0.68,   1.04,   0.08,  26,   0.03,  True),   # 8
+    AIConfig(        0.020,  0.52,    9,   0.03,     3.8,   0.92,  1.00,  9,   0.84,   1.28,   0.00,  20,   0.00,  True),   # 9
 )
 # fmt: on
 
@@ -116,7 +116,7 @@ def get_ai_config(
             ammo_discipline=cfg.ammo_discipline,
             engage_range_pct=cfg.engage_range_pct,
             los_range_pct=cfg.los_range_pct,
-            risky_enabled=cfg.risky_enabled,
+            risky_chance=cfg.risky_chance,
             frustration_threshold=cfg.frustration_threshold,
             skip_fire_base=cfg.skip_fire_base,
             scan_when_blind=cfg.scan_when_blind,
@@ -478,7 +478,7 @@ class AIPlayer:
         """FR-8: in cone and range, but no clear LOS — snap shot."""
         from .ai_perception import enemy_in_forward_cone
 
-        if not self.config.risky_enabled:
+        if self.config.risky_chance <= 0.0 or random.random() > self.config.risky_chance:
             return False
         if not enemy_in_forward_cone(my_pos, direction, target):
             return False
@@ -489,10 +489,10 @@ class AIPlayer:
         return True
 
     def effective_min_shots_for_aimed(self) -> int:
-        """FR-10: table ``confidence_threshold`` is the exact reserve needed."""
+        """FR-10: higher confidence = better aim = fewer reserve shots needed."""
         import math
 
-        return math.ceil(self.config.confidence_threshold)
+        return max(1, 5 - math.ceil(self.config.confidence_threshold))
 
     def should_skip_fire(self, kind: str = "aimed") -> bool:
         """FR-8: low skill sometimes hesitates and does not take a shot this tick."""
