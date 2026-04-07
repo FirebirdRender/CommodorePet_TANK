@@ -17,26 +17,21 @@ WINDOW_HEIGHT: int = BOARD_OFFSET_Y + (SCREEN_HEIGHT_CELLS * CELL_SIZE)
 
 # Resources
 INITIAL_TANKS: int = 3
-BASE_SHOTS_PER_LEVEL: int = 5  # SS ≈ 5 × difficulty
-BASE_MINES_PER_LEVEL: int = 1  # mines scale roughly with difficulty
-DIFFICULTY_MIN: int = 0  # 0 = easiest
+DIFFICULTY_MIN: int = 0  # 0 = easiest  (UI shows 1-10, internally 0-9)
 DIFFICULTY_MAX: int = 9  # 9 = hardest
 
 # Timing (seconds)
 EXPLOSION_DURATION: float = 0.5
 MINE_DETONATION_DELAY: float = 0.1
 
-# Movement delay (scales with difficulty - harder = faster)
-# At skill 0: 1.0 seconds between moves
-# At skill 9: 0.1 seconds between moves
-MOVE_DELAY_BASE: float = 1.0
-MOVE_DELAY_MIN: float = 0.1
+# Movement delay: calibrated to original PET timing (~12s to cross 40 cells at fastest keypress).
+# Base = 0.3s/cell (100%); scales to 0.2s/cell (150%) at difficulty 9.
+MOVE_DELAY_BASE: float = 0.3
+MOVE_DELAY_MIN: float = 0.2
 
-# Shot delay (scales with difficulty - harder = faster)
-# At skill 0: 0.5 seconds between cell moves
-# At skill 9: 0.05 seconds between cell moves
-SHOT_DELAY_BASE: float = 0.5
-SHOT_DELAY_MIN: float = 0.05
+# Shot delay: constant speed regardless of difficulty.
+# ~0.1s per cell → 3s to cross 75% of 40-cell width, ~2s for height.
+SHOT_DELAY: float = 0.1
 
 # Headless SHOWDOWN: wall time per frame for the sim batch (runtime ↑/↓ on dashboard).
 # Default 50 ms balances sim throughput vs UI/event responsiveness on typical displays.
@@ -65,27 +60,15 @@ SHOWDOWN_WORKER_MAX_RETRIES: int = 5  # per match; re-run with new seed after ti
 
 
 def get_move_delay(difficulty: int) -> float:
-    """Calculate movement delay based on difficulty.
-
-    Higher difficulty = faster movement (shorter delay).
-    Linear interpolation from BASE at level 0 to MIN at level 9.
-    """
+    """Movement delay: 0.3s at level 0 down to 0.2s at level 9 (linear)."""
     level = max(DIFFICULTY_MIN, min(DIFFICULTY_MAX, difficulty))
-    # Linear: level 0 -> 1.0s, level 9 -> 0.1s
     ratio = level / DIFFICULTY_MAX  # 0.0 to 1.0
     return MOVE_DELAY_BASE - ratio * (MOVE_DELAY_BASE - MOVE_DELAY_MIN)
 
 
-def get_shot_delay(difficulty: int) -> float:
-    """Calculate shot delay based on difficulty.
-
-    Higher difficulty = faster shots (shorter delay).
-    Linear interpolation from BASE at level 0 to MIN at level 9.
-    """
-    level = max(DIFFICULTY_MIN, min(DIFFICULTY_MAX, difficulty))
-    # Linear: level 0 -> 0.5s, level 9 -> 0.05s
-    ratio = level / DIFFICULTY_MAX  # 0.0 to 1.0
-    return SHOT_DELAY_BASE - ratio * (SHOT_DELAY_BASE - SHOT_DELAY_MIN)
+def get_shot_delay(_difficulty: int) -> float:
+    """Shot delay is constant (not affected by difficulty)."""
+    return SHOT_DELAY
 
 
 # Colors (RGB) — PET phosphor-green monochrome palette (UI_RETRO_SPEC §2)
@@ -148,15 +131,29 @@ def __getattr__(name: str) -> object:
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-def difficulty_to_resources(_level: int) -> tuple[int, int, int]:
-    """Map difficulty level to (tanks, shots, mines) per player.
+def difficulty_to_resources(level: int) -> tuple[int, int, int]:
+    """Map difficulty level (0-9) to (tanks, shots, mines) per player.
 
-    Original TANK! mechanic: 6 shots per life, 1 mine per life.
-    Difficulty affects terrain density (separate from resources).
+    Tables derived from original PET TANK! (Cursor #26).
+    UI displays 1-10; internal level = UI - 1 (0-9).
     """
     tanks = INITIAL_TANKS
-    # Original: 6 shots per life/tank
-    shots = 6 * tanks
-    # Original: 1 mine per life/tank
-    mines = tanks
+    # Shots: 0-1→6, 2-4→8, 5-7→10, 8-9→12
+    if level <= 1:
+        shots = 6
+    elif level <= 4:
+        shots = 8
+    elif level <= 7:
+        shots = 10
+    else:
+        shots = 12
+    # Mines: 0→0, 1-3→1, 4-6→2, 7-9→3
+    if level <= 0:
+        mines = 0
+    elif level <= 3:
+        mines = 1
+    elif level <= 6:
+        mines = 2
+    else:
+        mines = 3
     return tanks, shots, mines

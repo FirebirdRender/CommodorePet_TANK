@@ -160,6 +160,7 @@ class GameController:
         self.shots: list[Shot] = []
         self.mines: list[Mine] = []
         self.explosions: list[Explosion] = []
+        self._barrel_wreckage_registry: list[tuple[tuple[int, int], Direction]] = []
         self.difficulty: int = 5
         self.difficulty_per_player: dict[int, int] = {
             1: 5,
@@ -267,7 +268,8 @@ class GameController:
     def init_round(self) -> None:
         import random
 
-        self.board = Board()
+        self.board = Board(difficulty=self.difficulty)
+        self._barrel_wreckage_registry = []
         tanks, shots, mines = difficulty_to_resources(self.difficulty)
 
         # Set movement and shot delay based on difficulty
@@ -803,7 +805,16 @@ class GameController:
             return
 
         x, y = shot_pos
-        self.shots.append(Shot(x=x, y=y, direction=shot_dir, owner_id=tank.player_id))
+        dx, dy = DIRECTION_VECTORS[shot_dir]
+        # Max range = 75% of relevant board dimension
+        if dx != 0 and dy != 0:
+            max_range = int(0.75 * min(self.board.width, self.board.height))
+        elif dx != 0:
+            max_range = int(0.75 * self.board.width)
+        else:
+            max_range = int(0.75 * self.board.height)
+        self.shots.append(Shot(x=x, y=y, direction=shot_dir, owner_id=tank.player_id,
+                               max_range=max_range))
         tank.consume_shot()
         _debug_log(f"SHOT_FIRED: player={tank.player_id} pos=({x},{y}) dir={tank.direction.name}")
 
@@ -842,14 +853,28 @@ class GameController:
                 )
                 break  # Only trigger one mine per collision
 
+    def _place_dice_wreckage(self, cx: int, cy: int, player_id: int) -> None:
+        """Place 4-dot dice pattern (corners of a 3x3 area) as wreckage."""
+        wreckage_type = CellType.WRECKAGE_P1 if player_id == 1 else CellType.WRECKAGE_P2
+        for dx, dy in ((-1, -1), (1, -1), (-1, 1), (1, 1)):
+            nx, ny = cx + dx, cy + dy
+            if not self.board.in_bounds(nx, ny):
+                continue
+            cell = self.board.get_cell(nx, ny)
+            if cell is None:
+                continue
+            # Only place on empty/shot cells; don't overwrite borders or other tanks
+            if cell.type in {CellType.EMPTY, CellType.SHOT, CellType.MINE,
+                             CellType.BARREL1, CellType.BARREL2}:
+                self.board.set_cell_type(nx, ny, wreckage_type)
+
     def _tank_hit(self, tank: Tank, pos: tuple[int, int]) -> None:
         _debug_log(
             f"TANK_HIT: player={tank.player_id} at ({pos[0]},{pos[1]}), lives_before={tank.lives}"
         )
 
-        # Leave wreckage at hit location BEFORE respawning
-        wreckage_type = CellType.WRECKAGE_P1 if tank.player_id == 1 else CellType.WRECKAGE_P2
-        self.board.set_cell_type(pos[0], pos[1], wreckage_type)
+        tank.clear_from_board(self.board)
+        self._place_dice_wreckage(pos[0], pos[1], tank.player_id)
 
         tank.take_damage()
         exp = Explosion(
@@ -866,27 +891,60 @@ class GameController:
             # Both tanks respawn to starting positions after each kill
             self._respawn_both_tanks()
 
+    def _barrel_hit(self, tank: Tank, barrel_pos: tuple[int, int]) -> None:
+        """Barrel shot: no explosion, only the hit player loses a life and respawns."""
+        _debug_log(
+            f"BARREL_HIT: player={tank.player_id} barrel at ({barrel_pos[0]},{barrel_pos[1]}), lives_before={tank.lives}"
+        )
+        # Leave curled-barrel wreckage (body + barrel positions)
+        wreckage_type = CellType.WRECKAGE_P1 if tank.player_id == 1 else CellType.WRECKAGE_P2
+        body_pos = (tank.x, tank.y)
+        barrel_dir = tank.direction
+        tank.clear_from_board(self.board)
+        self.board.set_cell_type(body_pos[0], body_pos[1], wreckage_type)
+        self.board.set_cell_type(barrel_pos[0], barrel_pos[1], wreckage_type)
+        self._barrel_wreckage_registry.append((barrel_pos, barrel_dir))
+
+        tank.take_damage()
+        _debug_log(f"  -> lives_after={tank.lives}")
+
+        if not tank.is_alive():
+            _debug_log(f"  -> player {tank.player_id} DEFEATED!")
+            self._on_player_defeated(tank.player_id)
+        else:
+            self._respawn_single_tank(tank.player_id)
+
+    def _respawn_single_tank(self, player_id: int) -> None:
+        """Respawn only the specified player to their start position (other stays)."""
+        _, shots, mines = difficulty_to_resources(self.difficulty)
+        tank = self.tanks[player_id]
+        start_x, start_y = tank.start_pos
+        tank.clear_from_board(self.board)
+        tank.x = start_x
+        tank.y = start_y
+        tank.occupy_board(self.board)
+        tank.shots_left = shots
+        tank.mines_left = mines
+        self._swing_state[player_id] = None
+        _debug_log(
+            f"Respawned player {player_id} at ({start_x},{start_y}) with {shots} shots, {mines} mines"
+        )
+        nav_time = self.sim_time_s()
+        if player_id in self._ai:
+            self._ai[player_id].navigation.on_respawn(nav_time)
+
     def _respawn_both_tanks(self) -> None:
         """Respawn both tanks to their start positions after a kill."""
         tanks, shots, mines = difficulty_to_resources(self.difficulty)
 
         for tank in self.tanks.values():
             start_x, start_y = tank.start_pos
-
-            # Clear the tank's *current* cell before moving coordinates. Setting x/y first
-            # would make clear_from_board wipe the spawn square (often EMPTY) and leave a
-            # stale TANK1/TANK2 cell where the tank used to be — blocking movement and
-            # causing shots to spawn into "ghost" tanks (instant self-hits).
             tank.clear_from_board(self.board)
             tank.x = start_x
             tank.y = start_y
             tank.occupy_board(self.board)
-
-            # RESTOCK AMMO on respawn (fresh tank = full ammo)
             tank.shots_left = shots
             tank.mines_left = mines
-
-            # Reset swing state after respawn
             self._swing_state[tank.player_id] = None
 
             _debug_log(
@@ -1487,7 +1545,11 @@ class GameController:
             if cell is None:
                 continue
 
-            if cell.type in {CellType.TANK1, CellType.TANK2}:
+            if cell.type in {CellType.BARREL1, CellType.BARREL2}:
+                target_id = 1 if cell.type == CellType.BARREL1 else 2
+                _debug_log(f"SHOT_HIT_BARREL: player={target_id} at ({cx},{cy})")
+                self._barrel_hit(self.tanks[target_id], (cx, cy))
+            elif cell.type in {CellType.TANK1, CellType.TANK2}:
                 target_id = 1 if cell.type == CellType.TANK1 else 2
                 _debug_log(f"SHOT_HIT_TANK: player={target_id} at ({cx},{cy})")
                 self._tank_hit(self.tanks[target_id], (cx, cy))
@@ -1571,11 +1633,16 @@ class GameController:
                             _debug_log(f"  -> Chain reaction! Triggering mine at ({nx},{ny})")
                             self._explode_mine(nx, ny, radius=2, is_chain=True)  # Chain reaction!
                             break
-                # Damage tanks
+                # Damage tanks (body hit)
                 elif cell.type in {CellType.TANK1, CellType.TANK2}:
                     target_id = 1 if cell.type == CellType.TANK1 else 2
                     _debug_log(f"  -> Hit TANK{target_id} at ({nx},{ny})")
                     self._tank_hit(self.tanks[target_id], (nx, ny))
+                # Damage tanks (barrel hit)
+                elif cell.type in {CellType.BARREL1, CellType.BARREL2}:
+                    target_id = 1 if cell.type == CellType.BARREL1 else 2
+                    _debug_log(f"  -> Hit BARREL{target_id} at ({nx},{ny})")
+                    self._barrel_hit(self.tanks[target_id], (nx, ny))
                 # Destroy wreckage
                 elif cell.type in {CellType.WRECKAGE_P1, CellType.WRECKAGE_P2}:
                     self.board.set_cell_type(nx, ny, CellType.EMPTY)

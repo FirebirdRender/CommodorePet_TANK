@@ -12,16 +12,19 @@ from __future__ import annotations
 import pygame
 
 from .constants import (
+    BOARD_OFFSET_Y,
     CELL_SIZE,
+    COLOR_BG,
     COLOR_PET_FG,
     COLOR_STATUS_BG,
     COLOR_TEXT,
     SCREEN_WIDTH_CELLS,
     STATUS_BAR_HEIGHT,
     WINDOW_WIDTH,
+    difficulty_to_resources,
 )
 from .petscii_map import PET_MAP
-from .petscii_render import blit_glyph, get_pet_font, glyph_surface
+from .petscii_render import blit_glyph, blit_inverted, get_pet_font, glyph_surface
 from .player import Tank
 
 # HUD occupies 2 character rows (each CELL_SIZE px high).
@@ -50,6 +53,19 @@ def _hud_text_row1(tank: Tank) -> str:
     return f"  {tank.lives}      {tank.shots_left}      {tank.mines_left}".ljust(18)[:18]
 
 
+def _player_status_message(tank: Tank, max_shots: int, is_winner: bool) -> str:
+    """Per-player status message for the border message bar."""
+    if is_winner:
+        return "THE WINNER"
+    if tank.shots_left == 0:
+        return "OUT OF SHOTS"
+    if max_shots > 0 and tank.shots_left <= max_shots * 0.2:
+        return "LOW SHOTS"
+    if tank.lives == 1:
+        return "LAST TANK"
+    return ""
+
+
 class StatusDisplay:
     def __init__(self, font: pygame.font.Font) -> None:
         self.font = font
@@ -61,6 +77,8 @@ class StatusDisplay:
         player2: Tank,
         current_player_id: int | None = None,
         ai_difficulty: dict[int, int] | None = None,
+        winner: int | None = None,
+        difficulty: int = 5,
     ) -> None:
         solid_ch = PET_MAP["SOLID"]
         sep_ch = PET_MAP["BORDER"]
@@ -90,6 +108,16 @@ class StatusDisplay:
         self._draw_panel_text(surface, 0, p1_row0, p1_row1)
         self._draw_panel_text(surface, _P2_START, p2_row0, p2_row1)
 
+        # 4. Per-player status messages in the top border row
+        _, max_shots, _ = difficulty_to_resources(difficulty)
+        p1_msg = _player_status_message(player1, max_shots, winner == 1)
+        p2_msg = _player_status_message(player2, max_shots, winner == 2)
+        border_y = BOARD_OFFSET_Y
+        if p1_msg:
+            self._draw_border_message(surface, p1_msg, 1, border_y)
+        if p2_msg:
+            self._draw_border_message(surface, p2_msg, _CENTER_END, border_y)
+
     def _draw_panel_text(
         self,
         surface: pygame.Surface,
@@ -97,13 +125,7 @@ class StatusDisplay:
         row0: str,
         row1: str,
     ) -> None:
-        """Draw two rows of HUD text starting at *start_col*.
-
-        Each character cell is first cleared to black (``COLOR_STATUS_BG``)
-        then the character glyph is blitted on top — matching the PET's
-        normal-mode character-on-dark-background within the solid-block bar.
-        """
-        font = get_pet_font(CELL_SIZE)
+        """Draw two rows of HUD text starting at *start_col*."""
         for i, ch in enumerate(row0):
             if ch == " ":
                 continue
@@ -117,6 +139,22 @@ class StatusDisplay:
             py = CELL_SIZE
             pygame.draw.rect(surface, COLOR_STATUS_BG, (px, py, CELL_SIZE, CELL_SIZE))
             blit_glyph(surface, ch, px, py, COLOR_PET_FG, CELL_SIZE)
+
+    def _draw_border_message(
+        self,
+        surface: pygame.Surface,
+        msg: str,
+        start_col: int,
+        border_y: int,
+    ) -> None:
+        """Render a status message into the top border row (inverted text on green)."""
+        panel_width = _CENTER_START - 1  # columns available per player side
+        msg = msg[:panel_width].center(panel_width)
+        for i, ch in enumerate(msg):
+            px = (start_col + i) * CELL_SIZE
+            if ch == " ":
+                continue
+            blit_inverted(surface, ch, px, border_y, COLOR_PET_FG, COLOR_BG, CELL_SIZE)
 
 
 class MessageOverlay:

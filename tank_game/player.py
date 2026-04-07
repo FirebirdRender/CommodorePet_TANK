@@ -41,16 +41,34 @@ class Tank:
     start_pos: tuple[int, int]
 
     def occupy_board(self, board: Board) -> None:
-        cell_type = CellType.TANK1 if self.player_id == 1 else CellType.TANK2
-        board.set_cell_type(self.x, self.y, cell_type)
+        body_type = CellType.TANK1 if self.player_id == 1 else CellType.TANK2
+        board.set_cell_type(self.x, self.y, body_type)
+        self._place_barrel(board)
+
+    def _place_barrel(self, board: Board) -> None:
+        barrel_type = CellType.BARREL1 if self.player_id == 1 else CellType.BARREL2
+        bx, by = self.barrel_pos()
+        if board.in_bounds(bx, by):
+            cell = board.get_cell(bx, by)
+            if cell and cell.type == CellType.EMPTY:
+                board.set_cell_type(bx, by, barrel_type)
+
+    def _clear_barrel(self, board: Board) -> None:
+        barrel_type = CellType.BARREL1 if self.player_id == 1 else CellType.BARREL2
+        bx, by = self.barrel_pos()
+        if board.in_bounds(bx, by):
+            cell = board.get_cell(bx, by)
+            if cell and cell.type == barrel_type:
+                board.set_cell_type(bx, by, CellType.EMPTY)
+
+    def barrel_pos(self) -> tuple[int, int]:
+        dx, dy = DIRECTION_VECTORS[self.direction]
+        return self.x + dx, self.y + dy
 
     def clear_from_board(self, board: Board) -> None:
-        # Check if there's a mine at this location before clearing
+        self._clear_barrel(board)
         cell = board.get_cell(self.x, self.y)
-
-        # If there's a mine here, just clear the tank but leave the mine
         if cell and cell.type == CellType.MINE:
-            # Tank leaves, mine stays - just change cell to MINE (not EMPTY)
             board.set_cell_type(self.x, self.y, CellType.MINE)
         else:
             board.set_cell_type(self.x, self.y, CellType.EMPTY)

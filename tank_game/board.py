@@ -12,6 +12,8 @@ class CellType(IntEnum):
     WALL = auto()
     TANK1 = auto()
     TANK2 = auto()
+    BARREL1 = auto()  # Player 1's barrel cell
+    BARREL2 = auto()  # Player 2's barrel cell
     SHOT = auto()
     MINE = auto()
     WRECKAGE_P1 = auto()  # Player 1's destroyed tank
@@ -24,13 +26,18 @@ class Cell:
 
 
 class Board:
-    """Logical 40×25 grid with border walls and occupancy helpers."""
+    """Logical 40x25 grid with border walls and occupancy helpers."""
 
-    TERRAIN_DENSITY: float = 0.12  # ~12% of interior cells are walls
-
-    def __init__(self, width: int = SCREEN_WIDTH_CELLS, height: int = SCREEN_HEIGHT_CELLS) -> None:
+    def __init__(
+        self,
+        width: int = SCREEN_WIDTH_CELLS,
+        height: int = SCREEN_HEIGHT_CELLS,
+        difficulty: int = 5,
+    ) -> None:
         self.width = width
         self.height = height
+        # Terrain density scales with difficulty: level 0 ~4%, level 9 ~25%
+        self._terrain_density: float = 0.04 + (difficulty / 9) * 0.21
         self._grid: list[list[Cell]] = [[Cell() for _ in range(width)] for _ in range(height)]
         self._init_borders()
         self._generate_terrain()
@@ -53,7 +60,7 @@ class Board:
                 # Skip start positions (approximate: left side for P1, right side for P2)
                 if (1 <= x <= 5 and y == 12) or (self.width - 6 <= x <= self.width - 2 and y == 12):
                     continue
-                if random.random() < self.TERRAIN_DENSITY:
+                if random.random() < self._terrain_density:
                     self._grid[y][x].type = CellType.WALL
 
     def in_bounds(self, x: int, y: int) -> bool:

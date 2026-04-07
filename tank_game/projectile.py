@@ -33,6 +33,8 @@ class Shot:
     direction: Direction
     active: bool = True
     owner_id: int = 0  # Which player fired this shot (1 or 2)
+    max_range: int = 30  # Max cells before silent removal (75% of board dim)
+    _steps_taken: int = 0
     _hit_wall: bool = False  # True if last hit was a wall (for splash damage)
     _last_move_time: float = 0.0
     _collision_pos: tuple[int, int] | None = None
@@ -42,9 +44,16 @@ class Shot:
         if not self.active:
             return None
 
-        # FIRST: Check if there's a tank at CURRENT position (for spawn-point hits)
+        # Range limit: silently disappear (no explosion, no damage)
+        if self._steps_taken >= self.max_range:
+            self.active = False
+            return None
+
+        # FIRST: Check if there's a tank/barrel at CURRENT position (for spawn-point hits)
         current_cell = board.get_cell(self.x, self.y)
-        if current_cell and current_cell.type in {CellType.TANK1, CellType.TANK2}:
+        if current_cell and current_cell.type in {
+            CellType.TANK1, CellType.TANK2, CellType.BARREL1, CellType.BARREL2,
+        }:
             self.active = False
             return self.x, self.y
 
@@ -65,21 +74,26 @@ class Shot:
             self.active = False
             board.set_cell_type(next_x, next_y, CellType.EMPTY)
             self._hit_wall = True  # Flag for splash damage
+            self._steps_taken += 1
             return next_x, next_y
 
-        # Hit detection: tanks, mines, or wreckage
+        # Hit detection: tanks, barrels, mines, or wreckage
         if cell.type in {
             CellType.TANK1,
             CellType.TANK2,
+            CellType.BARREL1,
+            CellType.BARREL2,
             CellType.MINE,
             CellType.WRECKAGE_P1,
             CellType.WRECKAGE_P2,
         }:
             self.active = False
+            self._steps_taken += 1
             return next_x, next_y
 
         # Move through empty or shot cells
         self.x, self.y = next_x, next_y
+        self._steps_taken += 1
         return None
 
 

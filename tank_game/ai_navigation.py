@@ -225,6 +225,8 @@ class NavigationMemory:
         return cell.type in {
             CellType.TANK1,
             CellType.TANK2,
+            CellType.BARREL1,
+            CellType.BARREL2,
             CellType.WRECKAGE_P1,
             CellType.WRECKAGE_P2,
         }

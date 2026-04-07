@@ -311,7 +311,7 @@ def render_frame(
         return
 
     draw_board(screen, controller.board)
-    draw_wreckage(screen, controller.board)
+    draw_wreckage(screen, controller.board, controller._barrel_wreckage_registry)
     draw_mines(screen, controller.mines)
     draw_shots(screen, controller.shots)
     draw_tanks(screen, controller.tanks.values())
@@ -328,6 +328,8 @@ def render_frame(
             controller.tanks[1],
             controller.tanks[2],
             ai_difficulty=ai_diff,
+            winner=controller.winner,
+            difficulty=controller.difficulty,
         )
 
     if controller.state == GameState.SHOWDOWN_RUNNING:

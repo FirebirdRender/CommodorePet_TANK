@@ -157,10 +157,38 @@ def draw_explosions(surface: pygame.Surface, explosions: Iterable[Explosion]) ->
                 blit_cell(surface, ch, sx, sy, color, CELL_SIZE, BOARD_OFFSET_Y)
 
 
-def draw_wreckage(surface: pygame.Surface, board: Board) -> None:
-    wreck_ch = PET_MAP["WRECKAGE"]
+_CURL_GLYPH: dict[Direction, str] = {
+    Direction.UP:         PET_MAP["CURL_UP"],
+    Direction.DOWN:       PET_MAP["CURL_DOWN"],
+    Direction.LEFT:       PET_MAP["CURL_LEFT"],
+    Direction.RIGHT:      PET_MAP["CURL_RIGHT"],
+    Direction.UP_LEFT:    PET_MAP["CURL_UP"],
+    Direction.UP_RIGHT:   PET_MAP["CURL_DOWN"],
+    Direction.DOWN_LEFT:  PET_MAP["CURL_DOWN"],
+    Direction.DOWN_RIGHT: PET_MAP["CURL_UP"],
+}
+
+
+def draw_wreckage(
+    surface: pygame.Surface,
+    board: Board,
+    barrel_wreckage: list[tuple[tuple[int, int], Direction]] | None = None,
+) -> None:
+    dot_ch = PET_MAP["SOLID"]
+    barrel_positions: set[tuple[int, int]] = set()
+    if barrel_wreckage:
+        for pos, direction in barrel_wreckage:
+            barrel_positions.add(pos)
+
     for y in range(board.height):
         for x in range(board.width):
             cell = board.get_cell(x, y)
             if cell and cell.type in {CellType.WRECKAGE_P1, CellType.WRECKAGE_P2}:
-                blit_cell(surface, wreck_ch, x, y, COLOR_WRECKAGE, CELL_SIZE, BOARD_OFFSET_Y)
+                if (x, y) in barrel_positions:
+                    for pos, direction in barrel_wreckage:  # type: ignore[union-attr]
+                        if pos == (x, y):
+                            curl_ch = _CURL_GLYPH.get(direction, PET_MAP["CURL_UP"])
+                            blit_cell(surface, curl_ch, x, y, COLOR_WRECKAGE, CELL_SIZE, BOARD_OFFSET_Y)
+                            break
+                else:
+                    blit_cell(surface, dot_ch, x, y, COLOR_WRECKAGE, CELL_SIZE, BOARD_OFFSET_Y)

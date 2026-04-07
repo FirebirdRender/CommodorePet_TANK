@@ -1,5 +1,20 @@
 ## Changelog
 
+### 0.9.0 - 2026-04-07
+
+Retro-accuracy corrections to match the original PET TANK! (Cursor #26) mechanics.
+
+- **Projectile max range:** Shots travel at most 75% of the board dimension in their direction, then silently disappear (no explosion). Matches the original PET shot behavior.
+- **Constant shot speed:** 0.1s per cell, no longer scales with difficulty.
+- **Barrel shot mechanic:** Shots can now hit a tank's barrel cell. Barrel hits: no explosion, only the hit player loses a life and respawns (other player stays). Leaves curled-barrel wreckage.
+- **Difficulty-scaled terrain:** Wall density scales from ~4% (level 1) to ~25% (level 10). Previously fixed at 12%.
+- **Ammo per difficulty:** Level 1-2: 6, 3-5: 8, 6-8: 10, 9-10: 12 shots. Previously fixed at 18.
+- **Mines per difficulty:** Level 1: 0, 2-4: 1, 5-7: 2, 8-10: 3 mines. Previously fixed at 3.
+- **Tank speed calibration:** Base 0.3s/cell (matches PET ~12s screen-cross), scales to 0.2s/cell (150%) at difficulty 10. Previously 1.0s to 0.1s.
+- **Multi-cell wreckage:** Destroyed tanks leave 4-dot "dice" pattern (corners of 3x3 area) as obstacles. Degrades gracefully near borders.
+- **Per-player HUD messages:** Border row shows status messages: "LOW SHOTS" (<=20% ammo), "OUT OF SHOTS", "LAST TANK", "THE WINNER".
+- **Barrel cells on board:** Tank barrels now register as BARREL1/BARREL2 cells on the board, enabling barrel-specific collision detection and AI pathfinding awareness.
+
 ### 0.8.0 - 2026-04-07
 
 PETSCII retro UI overhaul — all rendering now uses authentic Commodore PET character glyphs.
