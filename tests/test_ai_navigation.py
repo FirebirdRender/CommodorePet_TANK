@@ -10,7 +10,7 @@ from tank_game.player import Direction
 def test_navigation_config_linear_difficulty() -> None:
     lo = navigation_config_for_difficulty(0)
     hi = navigation_config_for_difficulty(9)
-    assert lo.sight_radius < hi.sight_radius
+    assert lo.sight_radius_pct < hi.sight_radius_pct
     assert lo.search_budget < hi.search_budget
 
 

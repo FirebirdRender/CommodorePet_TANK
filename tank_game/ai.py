@@ -49,7 +49,7 @@ class AIConfig:
     peripheral_radius_pct: float
     scan_frequency: int
     mine_memory_decay: float
-    confidence_threshold: int
+    confidence_threshold: float
     dodge_chance: float
     aggressive_mines: float  # 0.0 = never, 0.5 = sometimes, 1.0 = always
     ammo_discipline: int
@@ -75,17 +75,17 @@ class AIConfig:
 
 # fmt: off
 _SKILL_TABLE: tuple[AIConfig, ...] = (
-    #                react   periph  scan  mine_dec  conf  dodge  mines  disc  engage  los     risky frust  skip   scan_blind
-    AIConfig(        0.200,  0.12,    0,   0.30,      1,   0.00,  0.0,   0,   0.16,   0.16,   True,  50,   0.30,  False),  # 0
-    AIConfig(        0.170,  0.14,    1,   0.27,      1,   0.10,  0.0,   1,   0.20,   0.24,   True,  47,   0.27,  False),  # 1
-    AIConfig(        0.145,  0.18,    2,   0.24,      1,   0.20,  0.0,   2,   0.24,   0.32,   True,  44,   0.23,  False),  # 2
-    AIConfig(        0.120,  0.22,    3,   0.21,      2,   0.30,  0.0,   3,   0.28,   0.40,   True,  41,   0.20,  False),  # 3
-    AIConfig(        0.100,  0.24,    4,   0.18,      2,   0.40,  0.0,   4,   0.32,   0.48,   True,  38,   0.17,  False),  # 4
-    AIConfig(        0.080,  0.28,    5,   0.15,      2,   0.50,  0.5,   5,   0.36,   0.56,   True,  35,   0.13,  True),   # 5
-    AIConfig(        0.065,  0.32,    6,   0.12,      3,   0.60,  1.0,   6,   0.44,   0.72,   False, 32,   0.10,  True),   # 6
-    AIConfig(        0.050,  0.36,    7,   0.09,      3,   0.70,  1.0,   7,   0.56,   0.88,   False, 29,   0.07,  True),   # 7
-    AIConfig(        0.038,  0.40,    8,   0.06,      3,   0.80,  1.0,   8,   0.72,   1.20,   False, 26,   0.03,  True),   # 8
-    AIConfig(        0.025,  0.48,    9,   0.03,      4,   0.90,  1.0,   9,   1.60,   4.00,   False, 20,   0.00,  True),   # 9
+    #                react   periph  scan  mine_dec  conf   dodge  mines  disc  engage  los     risky frust  skip   scan_blind
+    AIConfig(        0.200,  0.12,    0,   0.30,     0.8,   0.00,  0.00,  0,   0.16,   0.16,   True,  50,   0.30,  False),  # 0
+    AIConfig(        0.170,  0.14,    1,   0.27,     1.0,   0.10,  0.05,  1,   0.20,   0.24,   True,  47,   0.27,  False),  # 1
+    AIConfig(        0.145,  0.18,    2,   0.24,     1.2,   0.20,  0.10,  2,   0.24,   0.32,   True,  44,   0.23,  False),  # 2
+    AIConfig(        0.120,  0.22,    3,   0.21,     1.5,   0.30,  0.20,  3,   0.28,   0.40,   True,  41,   0.20,  False),  # 3
+    AIConfig(        0.100,  0.24,    4,   0.18,     1.8,   0.40,  0.30,  4,   0.32,   0.48,   True,  38,   0.17,  False),  # 4
+    AIConfig(        0.080,  0.28,    5,   0.15,     2.2,   0.50,  0.45,  5,   0.36,   0.56,   True,  35,   0.13,  True),   # 5
+    AIConfig(        0.065,  0.32,    6,   0.12,     2.5,   0.60,  0.60,  6,   0.44,   0.72,   False, 32,   0.10,  True),   # 6
+    AIConfig(        0.050,  0.36,    7,   0.09,     2.8,   0.70,  0.75,  7,   0.56,   0.88,   False, 29,   0.07,  True),   # 7
+    AIConfig(        0.038,  0.40,    8,   0.06,     3.2,   0.80,  0.88,  8,   0.72,   1.20,   False, 26,   0.03,  True),   # 8
+    AIConfig(        0.025,  0.48,    9,   0.03,     3.8,   0.90,  1.00,  9,   1.60,   4.00,   False, 20,   0.00,  True),   # 9
 )
 # fmt: on
 
@@ -490,7 +490,9 @@ class AIPlayer:
 
     def effective_min_shots_for_aimed(self) -> int:
         """FR-10: base reserve from ``confidence_threshold`` plus extra from ``ammo_discipline``."""
-        return self.config.confidence_threshold + (self.config.ammo_discipline // 3)
+        import math
+
+        return math.ceil(self.config.confidence_threshold) + (self.config.ammo_discipline // 3)
 
     def should_skip_fire(self, kind: str = "aimed") -> bool:
         """FR-8: low skill sometimes hesitates and does not take a shot this tick."""

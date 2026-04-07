@@ -32,7 +32,7 @@ def test_reaction_time_gate_skips_subtree_when_not_ready(ai_easy: AIPlayer, boar
     """PRD S1: root ``ReactionTimeGate`` does not tick the selector until reaction interval elapsed."""
     ai_easy._frustration_cycles = 100
     ai_easy._last_action_time = 0.0
-    ai_easy._stage_for_tree_tick(0.5, board, (5, 5), Direction.RIGHT, 5, 1, None, [])
+    ai_easy._stage_for_tree_tick(0.05, board, (5, 5), Direction.RIGHT, 5, 1, None, [])
     ai_easy._pending_action = None
     tree = ai_easy._behaviour_tree
     assert tree is not None
@@ -204,8 +204,10 @@ def test_pick_evade_rim_sticks_vertical_when_enemy_y_changes(board: Board) -> No
 
 
 def test_effective_min_shots_includes_ammo_discipline() -> None:
+    import math
+
     ai = AIPlayer(difficulty=5, start_pos=(2, 12), enemy_start_pos=(37, 12))
-    assert ai.effective_min_shots_for_aimed() == ai.config.confidence_threshold + (
+    assert ai.effective_min_shots_for_aimed() == math.ceil(ai.config.confidence_threshold) + (
         ai.config.ammo_discipline // 3
     )
 

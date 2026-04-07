@@ -10,6 +10,7 @@ venv/
 ENV/
 env/
 
+
 # Packaging / editable installs
 build/
 dist/
@@ -51,6 +52,17 @@ Desktop.ini
 # Cursor / local agent state (not portable)
 .cursor/
 .opencode/
+.ruff_cache/
+.pytest_cache/
+.benchmarks/
+
+
+# Build docs / PRDS / etc
+docs/
+scripts/
+tasks/
+tests/
+
 
 # Game / dev runtime output (see tank_game DEBUG_LOG_FILE, showdown summaries)
 tank_debug.log
