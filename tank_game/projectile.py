@@ -82,8 +82,14 @@ class Shot:
             self._steps_taken += 1
             return next_x, next_y
 
-        # Hit detection: tanks, barrels, mines, or wreckage (skip own body/barrel)
-        if cell.type in {CellType.MINE, CellType.WRECKAGE_P1, CellType.WRECKAGE_P2}:
+        # Wreckage destruction — projectile clears wreckage like terrain
+        if cell.type in {CellType.WRECKAGE_P1, CellType.WRECKAGE_P2}:
+            self.active = False
+            board.set_cell_type(next_x, next_y, CellType.EMPTY)
+            self._steps_taken += 1
+            return next_x, next_y
+        # Hit detection: mines (skip own body/barrel)
+        if cell.type == CellType.MINE:
             self.active = False
             self._steps_taken += 1
             return next_x, next_y

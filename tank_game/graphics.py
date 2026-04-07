@@ -175,7 +175,7 @@ def draw_wreckage(
     barrel_wreckage: list[tuple[tuple[int, int], Direction]] | None = None,
     barrel_hit_bodies: set[tuple[int, int]] | None = None,
 ) -> None:
-    dot_ch = PET_MAP["SOLID"]
+    dot_ch = PET_MAP["WRECKAGE_DOT"]
     wreck_x_ch = PET_MAP["WRECKAGE"]
     barrel_positions: set[tuple[int, int]] = set()
     if barrel_wreckage:
@@ -199,7 +199,4 @@ def draw_wreckage(
                         inverted=True, bg=COLOR_BG,
                     )
                 else:
-                    blit_cell(
-                        surface, dot_ch, x, y, COLOR_WRECKAGE, CELL_SIZE, BOARD_OFFSET_Y,
-                        inverted=True, bg=COLOR_BG,
-                    )
+                    blit_cell(surface, dot_ch, x, y, COLOR_WRECKAGE, CELL_SIZE, BOARD_OFFSET_Y)

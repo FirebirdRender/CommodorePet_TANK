@@ -1,5 +1,10 @@
 ## Changelog
 
+### 0.9.6 - 2026-04-07
+
+- **Quarter-block wreckage dots:** Dice-pattern wreckage from tank explosions now uses `▗` (U+2597, lower-right quadrant block) instead of a full solid block, making the dots visually proportional to one cell.
+- **Projectiles destroy wreckage:** Shots now clear wreckage cells on contact (like walls/terrain), matching original PET behavior where wreckage is destructible.
+
 ### 0.9.5 - 2026-04-07
 
 - **Wreckage now full-brightness:** Dice-dot wreckage from tank explosions now uses `COLOR_PET_FG` (same phosphor green as walls/tanks/borders) and renders with inverted fill (guaranteed full-cell coverage). Previously used a dimmer green that could be nearly invisible.

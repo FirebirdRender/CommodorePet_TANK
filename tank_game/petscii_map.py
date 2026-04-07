@@ -48,6 +48,7 @@ PET_MAP: dict[str, str] = {
     "LINE_V":    _pet(0xDD),   # Vertical line (same as barrel) — U+2502
     # Wreckage
     "WRECKAGE":  _pet(0xD6),   # X / diagonal cross (Shift+V) — U+2573
+    "WRECKAGE_DOT": "\u2597",  # ▗ Lower-right quadrant block — quarter-cell dot for dice pattern
     # Curled barrel wreckage — arc / hook chars for each curl direction
     "CURL_UP":    _pet(0xCD),  # \ stroke — barrel curled upward
     "CURL_DOWN":  _pet(0xCE),  # / stroke — barrel curled downward
