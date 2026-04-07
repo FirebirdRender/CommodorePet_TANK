@@ -173,12 +173,15 @@ def draw_wreckage(
     surface: pygame.Surface,
     board: Board,
     barrel_wreckage: list[tuple[tuple[int, int], Direction]] | None = None,
+    barrel_hit_bodies: set[tuple[int, int]] | None = None,
 ) -> None:
     dot_ch = PET_MAP["SOLID"]
+    wreck_x_ch = PET_MAP["WRECKAGE"]
     barrel_positions: set[tuple[int, int]] = set()
     if barrel_wreckage:
         for pos, direction in barrel_wreckage:
             barrel_positions.add(pos)
+    body_positions = barrel_hit_bodies or set()
 
     for y in range(board.height):
         for x in range(board.width):
@@ -190,5 +193,10 @@ def draw_wreckage(
                             curl_ch = _CURL_GLYPH.get(direction, PET_MAP["CURL_UP"])
                             blit_cell(surface, curl_ch, x, y, COLOR_WRECKAGE, CELL_SIZE, BOARD_OFFSET_Y)
                             break
+                elif (x, y) in body_positions:
+                    blit_cell(
+                        surface, wreck_x_ch, x, y, COLOR_WRECKAGE, CELL_SIZE, BOARD_OFFSET_Y,
+                        inverted=True, bg=COLOR_BG,
+                    )
                 else:
                     blit_cell(surface, dot_ch, x, y, COLOR_WRECKAGE, CELL_SIZE, BOARD_OFFSET_Y)

@@ -161,6 +161,7 @@ class GameController:
         self.mines: list[Mine] = []
         self.explosions: list[Explosion] = []
         self._barrel_wreckage_registry: list[tuple[tuple[int, int], Direction]] = []
+        self._barrel_hit_bodies: set[tuple[int, int]] = set()
         self.difficulty: int = 5
         self.difficulty_per_player: dict[int, int] = {
             1: 5,
@@ -270,6 +271,7 @@ class GameController:
 
         self.board = Board(difficulty=self.difficulty)
         self._barrel_wreckage_registry = []
+        self._barrel_hit_bodies = set()
         tanks, shots, mines = difficulty_to_resources(self.difficulty)
 
         # Set movement and shot delay based on difficulty
@@ -903,6 +905,7 @@ class GameController:
         tank.clear_from_board(self.board)
         self.board.set_cell_type(body_pos[0], body_pos[1], wreckage_type)
         self.board.set_cell_type(barrel_pos[0], barrel_pos[1], wreckage_type)
+        self._barrel_hit_bodies.add(body_pos)
         self._barrel_wreckage_registry.append((barrel_pos, barrel_dir))
 
         tank.take_damage()

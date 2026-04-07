@@ -311,7 +311,8 @@ def render_frame(
         return
 
     draw_board(screen, controller.board)
-    draw_wreckage(screen, controller.board, controller._barrel_wreckage_registry)
+    draw_wreckage(screen, controller.board, controller._barrel_wreckage_registry,
+                  controller._barrel_hit_bodies)
     draw_mines(screen, controller.mines)
     draw_shots(screen, controller.shots)
     draw_tanks(screen, controller.tanks.values())

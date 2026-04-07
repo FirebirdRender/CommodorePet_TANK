@@ -1,5 +1,9 @@
 ## Changelog
 
+### 0.9.1 - 2026-04-07
+
+- **Barrel-hit wreckage visual:** Barrel-shot tanks now leave a visible inverse-X body + curled barrel, matching the original PET wreckage appearance. Previously the body cell was invisible (rendered as a tiny solid dot instead of the distinctive inverse-X).
+
 ### 0.9.0 - 2026-04-07
 
 Retro-accuracy corrections to match the original PET TANK! (Cursor #26) mechanics.
