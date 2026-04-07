@@ -33,8 +33,9 @@ PET_MAP: dict[str, str] = {
     "SOLID":     _pet(0xA0),   # Solid block (Shifted Space) — HUD bar fill
     # Terrain
     "WALL":      "\u259A",     # Quadrant upper-left + lower-right — diagonal checkerboard
-    # Tank composite — body rendered INVERTED (green fill, black asterisk hole)
-    "TANK_BODY": _pet(0x78),   # Asterisk/cross (PETSCII 0x78); inverted = green cell, black star
+    # Tank composite — body rendered INVERTED (green fill, black glyph hole)
+    "TANK_BODY_P1": "*",       # Asterisk; inverted = green cell, black star shape
+    "TANK_BODY_P2": "#",       # Hash; inverted = green cell, black grid pattern
     "BARREL_H":  _pet(0xC0),   # Horizontal line (Shift+@) — U+2500
     "BARREL_V":  _pet(0xDD),   # Vertical line (Shift+]) — U+2502
     # Objects

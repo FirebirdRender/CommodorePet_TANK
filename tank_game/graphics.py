@@ -107,10 +107,9 @@ def draw_board(surface: pygame.Surface, board: Board) -> None:
 
 
 def draw_tanks(surface: pygame.Surface, tanks: Iterable[Tank]) -> None:
-    body_ch = PET_MAP["TANK_BODY"]
-
     for tank in tanks:
         color = COLOR_TANK_1 if tank.player_id == 1 else COLOR_TANK_2
+        body_ch = PET_MAP["TANK_BODY_P1"] if tank.player_id == 1 else PET_MAP["TANK_BODY_P2"]
         blit_cell(
             surface, body_ch, tank.x, tank.y, color, CELL_SIZE, BOARD_OFFSET_Y,
             inverted=True, bg=COLOR_BG,
