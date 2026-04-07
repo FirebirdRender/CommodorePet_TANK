@@ -1,5 +1,9 @@
 ## Changelog
 
+### 0.6.5 - 2026-04-07
+
+- **README:** Rewrote for the current codebase — version line, features (two-player controls, SHOWDOWN matrix/headless/parallel), environment variable table, AI/testing pointers, and doc index. Removed outdated “scaffolding / incremental plan” status.
+
 ### 0.6.4 - 2026-04-07
 
 - **Parallel SHOWDOWN worker timeouts:** Each match attempt is bounded by simulated time (`TANK_SHOWDOWN_MAX_SIM_S`, default **600 s**), update steps (`TANK_SHOWDOWN_MAX_STEPS`, default **2_000_000**), and wall clock (`TANK_SHOWDOWN_MAX_WALL_S`, default **180 s**). On timeout, a line is appended to **`tank_showdown_timeouts.log`**, the match is retried with a new RNG seed up to **`TANK_SHOWDOWN_MAX_RETRIES`** (default **5**). If all retries fail, the result is recorded with `timeout` / `timeout_after_retries` and the summary file lists **`TIMEOUT (reason)`** instead of a winner.
