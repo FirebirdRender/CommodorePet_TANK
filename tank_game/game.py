@@ -1547,6 +1547,8 @@ class GameController:
 
             if cell.type in {CellType.BARREL1, CellType.BARREL2}:
                 target_id = 1 if cell.type == CellType.BARREL1 else 2
+                if target_id == shot.owner_id:
+                    continue  # can't barrel-hit yourself
                 _debug_log(f"SHOT_HIT_BARREL: player={target_id} at ({cx},{cy})")
                 self._barrel_hit(self.tanks[target_id], (cx, cy))
             elif cell.type in {CellType.TANK1, CellType.TANK2}:

@@ -50,10 +50,15 @@ class Shot:
             return None
 
         # FIRST: Check if there's a tank/barrel at CURRENT position (for spawn-point hits)
+        # Skip own body/barrel — shot spawns on the barrel cell
+        own_types = (
+            {CellType.TANK1, CellType.BARREL1} if self.owner_id == 1
+            else {CellType.TANK2, CellType.BARREL2}
+        )
         current_cell = board.get_cell(self.x, self.y)
         if current_cell and current_cell.type in {
             CellType.TANK1, CellType.TANK2, CellType.BARREL1, CellType.BARREL2,
-        }:
+        } and current_cell.type not in own_types:
             self.active = False
             return self.x, self.y
 
@@ -77,19 +82,22 @@ class Shot:
             self._steps_taken += 1
             return next_x, next_y
 
-        # Hit detection: tanks, barrels, mines, or wreckage
-        if cell.type in {
-            CellType.TANK1,
-            CellType.TANK2,
-            CellType.BARREL1,
-            CellType.BARREL2,
-            CellType.MINE,
-            CellType.WRECKAGE_P1,
-            CellType.WRECKAGE_P2,
-        }:
+        # Hit detection: tanks, barrels, mines, or wreckage (skip own body/barrel)
+        if cell.type in {CellType.MINE, CellType.WRECKAGE_P1, CellType.WRECKAGE_P2}:
             self.active = False
             self._steps_taken += 1
             return next_x, next_y
+        if cell.type in {
+            CellType.TANK1, CellType.TANK2, CellType.BARREL1, CellType.BARREL2,
+        } and cell.type not in own_types:
+            self.active = False
+            self._steps_taken += 1
+            return next_x, next_y
+        # Pass through own barrel/body cell
+        if cell.type in own_types:
+            self.x, self.y = next_x, next_y
+            self._steps_taken += 1
+            return None
 
         # Move through empty or shot cells
         self.x, self.y = next_x, next_y

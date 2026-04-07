@@ -93,9 +93,8 @@ class Tank:
         target = board.get_cell(new_x, new_y)
         if target is None:
             return False
-        # Allow movement through empty cells, shots, and mines
-        # Blocked by walls, other tanks, and wreckage
-        if target.type not in {CellType.EMPTY, CellType.SHOT, CellType.MINE}:
+        own_barrel = CellType.BARREL1 if self.player_id == 1 else CellType.BARREL2
+        if target.type not in {CellType.EMPTY, CellType.SHOT, CellType.MINE, own_barrel}:
             return False
 
         # Only update position if ALL checks pass
