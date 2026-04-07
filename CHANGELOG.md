@@ -1,5 +1,9 @@
 ## Changelog
 
+### 0.9.7 - 2026-04-07
+
+- **Fix: deferred empty-gun self-destruct.** Firing the last shot no longer immediately kills the player. The self-destruct is deferred until all of that player's in-flight projectiles resolve. If the last shot kills the opponent and ends the round, the firing player wins instead of dying first.
+
 ### 0.9.6 - 2026-04-07
 
 - **Quarter-block wreckage dots:** Dice-pattern wreckage from tank explosions now uses `▗` (U+2597, lower-right quadrant block) instead of a full solid block, making the dots visually proportional to one cell.

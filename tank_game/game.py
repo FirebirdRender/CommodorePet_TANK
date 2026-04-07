@@ -162,6 +162,7 @@ class GameController:
         self.explosions: list[Explosion] = []
         self._barrel_wreckage_registry: list[tuple[tuple[int, int], Direction]] = []
         self._barrel_hit_bodies: set[tuple[int, int]] = set()
+        self._empty_gun_pending: set[int] = set()
         self.difficulty: int = 5
         self.difficulty_per_player: dict[int, int] = {
             1: 5,
@@ -272,6 +273,7 @@ class GameController:
         self.board = Board(difficulty=self.difficulty)
         self._barrel_wreckage_registry = []
         self._barrel_hit_bodies = set()
+        self._empty_gun_pending = set()
         tanks, shots, mines = difficulty_to_resources(self.difficulty)
 
         # Set movement and shot delay based on difficulty
@@ -822,9 +824,10 @@ class GameController:
         tank.consume_shot()
         _debug_log(f"SHOT_FIRED: player={tank.player_id} pos=({x},{y}) dir={tank.direction.name}")
 
-        # Empty Gun Rule: if shooter has no shots left, they self-destruct
+        # Empty Gun Rule: deferred — wait for last projectile to resolve
         if not tank.can_fire():
-            self._tank_hit(tank, (tank.x, tank.y))
+            self._empty_gun_pending.add(tank.player_id)
+            _debug_log(f"EMPTY_GUN_PENDING: player={tank.player_id} fired last shot, awaiting resolution")
 
     def _shot_spawn_position(
         self, tank: Tank, fire_direction: Direction | None = None
@@ -1601,6 +1604,17 @@ class GameController:
             if shot.active or getattr(shot, "_collision_pos", None) is not None
         ]
         _debug_log(f"Shot count after cleanup: {len(self.shots)}")
+
+        # Deferred Empty Gun Rule: self-destruct players whose last shot has resolved
+        if self._empty_gun_pending:
+            for pid in list(self._empty_gun_pending):
+                has_active = any(s.active for s in self.shots if s.owner_id == pid)
+                if not has_active:
+                    self._empty_gun_pending.discard(pid)
+                    tank = self.tanks.get(pid)
+                    if tank and tank.is_alive() and self.state == GameState.PLAYING:
+                        _debug_log(f"EMPTY_GUN_DESTRUCT: player={pid} last shot resolved, self-destruct")
+                        self._tank_hit(tank, (tank.x, tank.y))
 
     def _explode_mine(self, mx: int, my: int, radius: int = 1, is_chain: bool = False) -> None:
         """Explode a mine, destroying everything in specified radius.
