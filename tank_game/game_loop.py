@@ -165,6 +165,9 @@ _MENU_STATES = frozenset({
     GameState.SHOWDOWN_ITERATIONS,
     GameState.SHOWDOWN_MATRIX_ROUNDS,
     GameState.SHOWDOWN_MATRIX_CONFIRM,
+    GameState.PLAY_AGAIN,
+    GameState.TOURNAMENT_END,
+    GameState.SHOWDOWN_COMPLETE,
 })
 
 _TITLE_TEXT = (
@@ -246,6 +249,42 @@ def _render_menu_text(
             "ESC - EDIT ROUNDS\n\n"
             f"{_headless_menu_hint(controller)}"
         )
+    elif state == GameState.PLAY_AGAIN:
+        victory_msg = controller.get_victory_message()
+        overlay.set_message(victory_msg + "\n\n\nANOTHER BATTLE?")
+    elif state == GameState.TOURNAMENT_END:
+        total = controller.battles_played
+        winner = None
+        unused = 0
+        p1w = controller.wins[1]
+        p2w = controller.wins[2]
+        if p1w > p2w:
+            winner = 1
+        elif p2w > p1w:
+            winner = 2
+
+        header = f"AFTER {total} BATTLE{'S' if total != 1 else ''}"
+        lines = f"    {header}\n    {'_' * len(header)}\n\n"
+        if winner is not None:
+            last_winner_tank = controller.tanks.get(winner)
+            if last_winner_tank is not None:
+                unused = last_winner_tank.lives - 1
+            lines += f"PLAYER # {winner} WON\n"
+            lines += f"AND HAD {unused} UNUSED TANK{'S' if unused != 1 else ''}\n"
+        else:
+            lines += "IT WAS A TIE!\n"
+        lines += f"\nP1 WINS: {p1w}   P2 WINS: {p2w}\n"
+        lines += "\n\nREADY."
+        overlay.set_message(lines)
+    elif state == GameState.SHOWDOWN_COMPLETE:
+        summary_file = (
+            controller._showdown_summary_file
+            if hasattr(controller, "_showdown_summary_file")
+            else ""
+        )
+        overlay.set_message(
+            f"SHOWDOWN COMPLETE!\n\nRESULTS SAVED TO:\n{summary_file}\n\nPRESS ESC TO QUIT"
+        )
 
     overlay.draw(screen)
 
@@ -297,40 +336,6 @@ def render_frame(
             controller._showdown_iterations if hasattr(controller, "_showdown_iterations") else 0
         )
         overlay.set_message(f"SHOWDOWN IN PROGRESS...\n\nMatch {current} of {total}")
-        overlay.draw(screen)
-    elif controller.state == GameState.SHOWDOWN_COMPLETE:
-        summary_file = (
-            controller._showdown_summary_file
-            if hasattr(controller, "_showdown_summary_file")
-            else ""
-        )
-        overlay.set_message(
-            f"SHOWDOWN COMPLETE!\n\nResults saved to:\n{summary_file}\n\nPress ESC to quit"
-        )
-        overlay.draw(screen)
-    elif controller.state == GameState.PLAY_AGAIN:
-        victory_msg = controller.get_victory_message()
-        overlay.set_message(victory_msg + "\n\nANOTHER BATTLE? (Y/N)")
-        overlay.draw(screen)
-    elif controller.state == GameState.TOURNAMENT_END:
-        p1_wins = controller.wins[1]
-        p2_wins = controller.wins[2]
-        total = controller.battles_played
-        if p1_wins > p2_wins:
-            champ = "PLAYER 1"
-        elif p2_wins > p1_wins:
-            champ = "PLAYER 2"
-        else:
-            champ = "TIE"
-
-        stats = f"AFTER {total} BATTLE{'S' if total != 1 else ''}\n"
-        stats += f"{'=' * 25}\n"
-        stats += f"PLAYER 1 WINS: {p1_wins}\n"
-        stats += f"PLAYER 2 WINS: {p2_wins}\n"
-        stats += f"\nCHAMPION: {champ}\n"
-        stats += "\nPRESS ENTER TO PLAY AGAIN\n"
-        stats += "PRESS ESC TO QUIT"
-        overlay.set_message(stats)
         overlay.draw(screen)
     else:
         overlay.clear()

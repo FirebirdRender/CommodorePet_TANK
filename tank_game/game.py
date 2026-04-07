@@ -929,7 +929,7 @@ class GameController:
         else:  # 3 lives (perfect game)
             suffix = "WITHOUT LOSING A TANK!"
 
-        self._victory_message = f"PLAYER {winner} WINS!\n{suffix}"
+        self._victory_message = f"PLAYER #{winner} WINS!\n{suffix}"
 
     def get_victory_message(self) -> str:
         """Return the current victory message."""
