@@ -1,3 +1,10 @@
+"""PETSCII-based rendering for the TANK! playfield.
+
+All game-object drawing uses cached glyph blits from :mod:`petscii_render`
+instead of ``pygame.draw`` primitives, matching the original Commodore PET
+look (UI_RETRO_SPEC).
+"""
+
 from __future__ import annotations
 
 from collections.abc import Iterable
@@ -9,154 +16,145 @@ from .constants import (
     BOARD_OFFSET_Y,
     CELL_SIZE,
     COLOR_BG,
+    COLOR_EXPLOSION,
+    COLOR_EXPLOSION_CHAIN,
     COLOR_GRID,
     COLOR_MINE,
     COLOR_SHOT,
     COLOR_TANK_1,
     COLOR_TANK_2,
     COLOR_WRECKAGE,
-    WINDOW_WIDTH,
+    SCREEN_HEIGHT_CELLS,
+    SCREEN_WIDTH_CELLS,
 )
 from .game import Explosion
-from .player import Tank
+from .petscii_map import PET_MAP
+from .petscii_render import blit_cell, blit_glyph
+from .player import Direction, Tank
 from .projectile import Mine, Shot
 
+# ── Barrel glyph per direction ──────────────────────────────────────────────
+# Cardinals use horizontal or vertical line; diagonals use NE/NW stroke chars.
+_BARREL_CHAR: dict[Direction, str] = {
+    Direction.UP:         PET_MAP["LINE_V"],
+    Direction.DOWN:       PET_MAP["LINE_V"],
+    Direction.LEFT:       PET_MAP["BARREL_H"],
+    Direction.RIGHT:      PET_MAP["BARREL_H"],
+    Direction.UP_LEFT:    PET_MAP["DIAG_NW"],
+    Direction.UP_RIGHT:   PET_MAP["DIAG_NE"],
+    Direction.DOWN_LEFT:  PET_MAP["DIAG_NE"],
+    Direction.DOWN_RIGHT: PET_MAP["DIAG_NW"],
+}
+
+_BARREL_OFFSET: dict[Direction, tuple[int, int]] = {
+    Direction.UP:         ( 0, -1),
+    Direction.DOWN:       ( 0,  1),
+    Direction.LEFT:       (-1,  0),
+    Direction.RIGHT:      ( 1,  0),
+    Direction.UP_LEFT:    (-1, -1),
+    Direction.UP_RIGHT:   ( 1, -1),
+    Direction.DOWN_LEFT:  (-1,  1),
+    Direction.DOWN_RIGHT: ( 1,  1),
+}
+
+# ── Explosion spoke patterns ────────────────────────────────────────────────
+# (dx, dy, glyph) — relative to the explosion center cell.
+_EXPLOSION_SPOKES_SMALL: list[tuple[int, int, str]] = [
+    ( 0, -1, PET_MAP["LINE_V"]),    # N
+    ( 0,  1, PET_MAP["LINE_V"]),    # S
+    (-1,  0, PET_MAP["LINE_H"]),    # W
+    ( 1,  0, PET_MAP["LINE_H"]),    # E
+    (-1, -1, PET_MAP["DIAG_NW"]),   # NW
+    ( 1, -1, PET_MAP["DIAG_NE"]),   # NE
+    (-1,  1, PET_MAP["DIAG_NE"]),   # SW
+    ( 1,  1, PET_MAP["DIAG_NW"]),   # SE
+]
+
+_EXPLOSION_SPOKES_LARGE: list[tuple[int, int, str]] = (
+    _EXPLOSION_SPOKES_SMALL
+    + [
+        # Second ring of rays (extends each spoke one cell further)
+        ( 0, -2, PET_MAP["LINE_V"]),
+        ( 0,  2, PET_MAP["LINE_V"]),
+        (-2,  0, PET_MAP["LINE_H"]),
+        ( 2,  0, PET_MAP["LINE_H"]),
+        (-2, -2, PET_MAP["DIAG_NW"]),
+        ( 2, -2, PET_MAP["DIAG_NE"]),
+        (-2,  2, PET_MAP["DIAG_NE"]),
+        ( 2,  2, PET_MAP["DIAG_NW"]),
+    ]
+)
+
+
+# ── Public draw functions ───────────────────────────────────────────────────
 
 def draw_board(surface: pygame.Surface, board: Board) -> None:
     surface.fill(COLOR_BG)
 
-    # Draw dotted border (original TANK! style) - offset below status bar
-    dot_spacing = CELL_SIZE // 2
-    dot_color = COLOR_GRID
+    # Border: PETSCII ball character around the perimeter (row 0, row H-1, col 0, col W-1)
+    border_ch = PET_MAP["BORDER"]
+    wall_ch = PET_MAP["WALL"]
 
-    # Top border (below status bar)
-    border_top = BOARD_OFFSET_Y + dot_spacing // 2
-    for x in range(0, WINDOW_WIDTH, dot_spacing):
-        pygame.draw.circle(surface, dot_color, (x + dot_spacing // 2, border_top), 2)
-
-    # Bottom border - at the bottom of the board area (not window bottom)
-    board_bottom = BOARD_OFFSET_Y + (board.height * CELL_SIZE)
-    for x in range(0, WINDOW_WIDTH, dot_spacing):
-        pygame.draw.circle(
-            surface, dot_color, (x + dot_spacing // 2, board_bottom - dot_spacing // 2), 2
-        )
-
-    # Left border
-    for y in range(BOARD_OFFSET_Y, BOARD_OFFSET_Y + board.height * CELL_SIZE, dot_spacing):
-        pygame.draw.circle(surface, dot_color, (dot_spacing // 2, y + dot_spacing // 2), 2)
-    # Right border
-    for y in range(BOARD_OFFSET_Y, BOARD_OFFSET_Y + board.height * CELL_SIZE, dot_spacing):
-        pygame.draw.circle(
-            surface, dot_color, (WINDOW_WIDTH - dot_spacing // 2, y + dot_spacing // 2), 2
-        )
-
-    # Draw interior walls (terrain) - offset by BOARD_OFFSET_Y
     for y in range(board.height):
         for x in range(board.width):
-            rect = pygame.Rect(x * CELL_SIZE, BOARD_OFFSET_Y + y * CELL_SIZE, CELL_SIZE, CELL_SIZE)
             cell = board.get_cell(x, y)
-            if cell and cell.type == CellType.WALL:
-                pygame.draw.rect(surface, COLOR_GRID, rect)
+            is_border = x == 0 or x == board.width - 1 or y == 0 or y == board.height - 1
+            if is_border:
+                blit_cell(surface, border_ch, x, y, COLOR_GRID, CELL_SIZE, BOARD_OFFSET_Y)
+            elif cell and cell.type == CellType.WALL:
+                blit_cell(surface, wall_ch, x, y, COLOR_GRID, CELL_SIZE, BOARD_OFFSET_Y)
 
 
 def draw_tanks(surface: pygame.Surface, tanks: Iterable[Tank]) -> None:
+    body_ch = PET_MAP["TANK_BODY"]
+
     for tank in tanks:
         color = COLOR_TANK_1 if tank.player_id == 1 else COLOR_TANK_2
+        blit_cell(surface, body_ch, tank.x, tank.y, color, CELL_SIZE, BOARD_OFFSET_Y)
 
-        # Draw tank body
-        rect = pygame.Rect(
-            tank.x * CELL_SIZE, BOARD_OFFSET_Y + tank.y * CELL_SIZE, CELL_SIZE, CELL_SIZE
-        )
-        pygame.draw.rect(surface, color, rect)
-
-        # Draw barrel indicating direction
-        from .player import Direction
-
-        cx = tank.x * CELL_SIZE + CELL_SIZE // 2
-        cy = BOARD_OFFSET_Y + tank.y * CELL_SIZE + CELL_SIZE // 2
-        barrel_length = CELL_SIZE // 2
-
-        if tank.direction == Direction.UP:
-            end_pos = (cx, cy - barrel_length)
-        elif tank.direction == Direction.DOWN:
-            end_pos = (cx, cy + barrel_length)
-        elif tank.direction == Direction.LEFT:
-            end_pos = (cx - barrel_length, cy)
-        elif tank.direction == Direction.RIGHT:
-            end_pos = (cx + barrel_length, cy)
-        elif tank.direction == Direction.UP_LEFT:
-            end_pos = (cx - barrel_length // 2, cy - barrel_length // 2)
-        elif tank.direction == Direction.UP_RIGHT:
-            end_pos = (cx + barrel_length // 2, cy - barrel_length // 2)
-        elif tank.direction == Direction.DOWN_LEFT:
-            end_pos = (cx - barrel_length // 2, cy + barrel_length // 2)
-        elif tank.direction == Direction.DOWN_RIGHT:
-            end_pos = (cx + barrel_length // 2, cy + barrel_length // 2)
-        else:
-            end_pos = (cx, cy - barrel_length)
-
-        pygame.draw.line(surface, (0, 0, 0), (cx, cy), end_pos, 3)
+        barrel_ch = _BARREL_CHAR.get(tank.direction, PET_MAP["LINE_V"])
+        dx, dy = _BARREL_OFFSET.get(tank.direction, (0, -1))
+        bx, by = tank.x + dx, tank.y + dy
+        if 0 <= bx < SCREEN_WIDTH_CELLS and 0 <= by < SCREEN_HEIGHT_CELLS:
+            blit_cell(surface, barrel_ch, bx, by, color, CELL_SIZE, BOARD_OFFSET_Y)
 
 
 def draw_shots(surface: pygame.Surface, shots: Iterable[Shot]) -> None:
+    shot_ch = PET_MAP["SHOT"]
     for shot in shots:
         if not shot.active:
             continue
-        rect = pygame.Rect(
-            shot.x * CELL_SIZE + CELL_SIZE // 4,
-            BOARD_OFFSET_Y + shot.y * CELL_SIZE + CELL_SIZE // 4,
-            CELL_SIZE // 2,
-            CELL_SIZE // 2,
-        )
-        pygame.draw.rect(surface, COLOR_SHOT, rect)
+        blit_cell(surface, shot_ch, shot.x, shot.y, COLOR_SHOT, CELL_SIZE, BOARD_OFFSET_Y)
 
 
 def draw_mines(surface: pygame.Surface, mines: Iterable[Mine]) -> None:
+    mine_ch = PET_MAP["MINE"]
     for mine in mines:
-        if not mine.active:
+        if not mine.active or not mine.visible:
             continue
-        # Only draw if mine is visible
-        if not mine.visible:
-            continue
-        rect = pygame.Rect(
-            mine.x * CELL_SIZE + CELL_SIZE // 4,
-            BOARD_OFFSET_Y + mine.y * CELL_SIZE + CELL_SIZE // 4,
-            CELL_SIZE // 2,
-            CELL_SIZE // 2,
-        )
-        pygame.draw.rect(surface, COLOR_MINE, rect)
+        blit_cell(surface, mine_ch, mine.x, mine.y, COLOR_MINE, CELL_SIZE, BOARD_OFFSET_Y)
 
 
 def draw_explosions(surface: pygame.Surface, explosions: Iterable[Explosion]) -> None:
+    center_ch = PET_MAP["BORDER"]
+
     for exp in explosions:
-        center = (
-            exp.x * CELL_SIZE + CELL_SIZE // 2,
-            BOARD_OFFSET_Y + exp.y * CELL_SIZE + CELL_SIZE // 2,
-        )
-        if exp.is_chain_reaction:
-            # Chain reaction: larger, more intense (orange/red, bigger)
-            pygame.draw.circle(surface, (255, 100, 0), center, CELL_SIZE)  # Bigger
-            pygame.draw.circle(surface, (255, 200, 0), center, CELL_SIZE * 2 // 3)
-        else:
-            # Regular explosion: smaller (yellow/orange)
-            pygame.draw.circle(surface, (255, 200, 0), center, CELL_SIZE // 2)
+        is_big = getattr(exp, "is_chain_reaction", False)
+        color = COLOR_EXPLOSION_CHAIN if is_big else COLOR_EXPLOSION
+        spokes = _EXPLOSION_SPOKES_LARGE if is_big else _EXPLOSION_SPOKES_SMALL
+
+        blit_cell(surface, center_ch, exp.x, exp.y, color, CELL_SIZE, BOARD_OFFSET_Y)
+
+        for dx, dy, ch in spokes:
+            sx, sy = exp.x + dx, exp.y + dy
+            if 0 <= sx < SCREEN_WIDTH_CELLS and 0 <= sy < SCREEN_HEIGHT_CELLS:
+                blit_cell(surface, ch, sx, sy, color, CELL_SIZE, BOARD_OFFSET_Y)
 
 
 def draw_wreckage(surface: pygame.Surface, board: Board) -> None:
-    """Draw destroyed tanks (wreckage) on the board."""
+    wreck_ch = PET_MAP["WRECKAGE"]
     for y in range(board.height):
         for x in range(board.width):
             cell = board.get_cell(x, y)
             if cell and cell.type in {CellType.WRECKAGE_P1, CellType.WRECKAGE_P2}:
-                # Draw wreckage as a darker, damaged-looking square
-                rect = pygame.Rect(
-                    x * CELL_SIZE, BOARD_OFFSET_Y + y * CELL_SIZE, CELL_SIZE, CELL_SIZE
-                )
-                pygame.draw.rect(surface, COLOR_WRECKAGE, rect)
-                # Add a cross-hatch pattern to look "wrecked"
-                start_x = x * CELL_SIZE
-                start_y = BOARD_OFFSET_Y + y * CELL_SIZE
-                end_x = (x + 1) * CELL_SIZE
-                end_y = BOARD_OFFSET_Y + (y + 1) * CELL_SIZE
-                pygame.draw.line(surface, (60, 60, 60), (start_x, start_y), (end_x, end_y), 2)
-                pygame.draw.line(surface, (60, 60, 60), (end_x, start_y), (start_x, end_y), 2)
+                blit_cell(surface, wreck_ch, x, y, COLOR_WRECKAGE, CELL_SIZE, BOARD_OFFSET_Y)

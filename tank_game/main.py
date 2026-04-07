@@ -30,8 +30,11 @@ from .constants import (
     WINDOW_HEIGHT,
     WINDOW_WIDTH,
 )
+from .constants import CELL_SIZE
 from .game import GameController, GameState
 from .game_loop import render_frame, tick_logic
+from .crt_effect import apply_crt
+from .petscii_render import get_pet_font
 from .ui import MessageOverlay, StatusDisplay
 
 DEBUG_LOG_FILE = "tank_debug.log"
@@ -69,7 +72,7 @@ def main() -> None:
     clock = pygame.time.Clock()
 
     controller = GameController()
-    font = pygame.font.SysFont("consolas", 18)
+    font = get_pet_font(CELL_SIZE)
     status = StatusDisplay(font)
     overlay = MessageOverlay(font)
 
@@ -102,10 +105,12 @@ def main() -> None:
             if headless_render_skip >= HEADLESS_RENDER_INTERVAL:
                 headless_render_skip = 0
                 render_frame(screen, controller, status, overlay)
+                apply_crt(screen)
                 pygame.display.flip()
         else:
             headless_render_skip = 0
             render_frame(screen, controller, status, overlay)
+            apply_crt(screen)
             pygame.display.flip()
 
     pygame.quit()

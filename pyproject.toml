@@ -1,6 +1,6 @@
 [project]
 name = "tank-game"
-version = "0.7.1"
+version = "0.8.0"
 description = "Python 3 / PyGame recreation of the classic two-player TANK! game from Cursor Magazine #26."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -10,6 +10,7 @@ authors = [
 dependencies = [
   "pygame>=2.5.0",
   "py_trees>=2.2.0",
+  "cbmcodecs2>=1.0",
 ]
 
 [project.optional-dependencies]
@@ -29,6 +30,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["tank_game*"]
+
+[tool.setuptools.package-data]
+"tank_game" = ["assets/fonts/*.ttf", "assets/fonts/FreeLicense.txt"]
 
 [tool.ruff]
 target-version = "py310"

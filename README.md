@@ -1,11 +1,12 @@
 ## TANK! — Python / PyGame port
 
-**Version 0.6.6** — Python 3 / PyGame recreation of the classic two-player **TANK!** game from *Cursor Magazine* #26 (Commodore PET 4016). Core gameplay, UI, audio, and AI opponents are in place.
+**Version 0.8.0** — Python 3 / PyGame recreation of the classic two-player **TANK!** game from *Cursor Magazine* #26 (Commodore PET 4016). Authentic **PETSCII retro** rendering with bundled PET font, monochrome phosphor-green palette, and character-cell visuals matching the original Commodore PET look.
 
 ### Features
 
 - **Two-player** local play on a shared keyboard: **left tank** — WASD + Left Ctrl (fire); **right tank** — numpad (8/4/6/2 move, 0 fire). Movement is simultaneous (not turn-based).
 - **VS AI** — play against computer-controlled tanks with selectable skill and other options from the game menus.
+- **PETSCII retro visuals** — all game elements (border, walls, tanks, shots, mines, explosions, HUD) rendered as Commodore PET character glyphs via bundled PetMe64 font. Monochrome phosphor-green palette. Optional CRT scanline effect (`TANK_CRT=1`).
 
 ### Requirements
 

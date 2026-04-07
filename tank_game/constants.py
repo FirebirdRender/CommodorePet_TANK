@@ -88,16 +88,19 @@ def get_shot_delay(difficulty: int) -> float:
     return SHOT_DELAY_BASE - ratio * (SHOT_DELAY_BASE - SHOT_DELAY_MIN)
 
 
-# Colors (RGB)
+# Colors (RGB) — PET phosphor-green monochrome palette (UI_RETRO_SPEC §2)
 COLOR_BG = (0, 0, 0)
-COLOR_GRID = (0, 80, 0)
-COLOR_TANK_1 = (255, 255, 0)
-COLOR_TANK_2 = (255, 0, 0)
-COLOR_SHOT = (255, 255, 255)
-COLOR_MINE = (160, 160, 160)
-COLOR_TEXT = (0, 255, 0)
+COLOR_PET_FG: tuple[int, int, int] = (51, 255, 51)  # P1 phosphor green
+COLOR_GRID = COLOR_PET_FG
+COLOR_TANK_1 = COLOR_PET_FG
+COLOR_TANK_2 = COLOR_PET_FG
+COLOR_SHOT = COLOR_PET_FG
+COLOR_MINE = COLOR_PET_FG
+COLOR_TEXT = COLOR_PET_FG
 COLOR_STATUS_BG = (0, 0, 0)
-COLOR_WRECKAGE = (80, 80, 80)  # Gray for destroyed tanks
+COLOR_WRECKAGE = (20, 100, 20)  # Dimmer green for destroyed tanks
+COLOR_EXPLOSION = COLOR_PET_FG
+COLOR_EXPLOSION_CHAIN = (80, 255, 80)  # Slightly brighter for catalyst blasts
 
 # Key bindings (per player) — built lazily to avoid importing pygame/SDL in
 # headless worker processes.  Access via module attribute (e.g.

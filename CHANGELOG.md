@@ -1,5 +1,19 @@
 ## Changelog
 
+### 0.8.0 - 2026-04-07
+
+PETSCII retro UI overhaul — all rendering now uses authentic Commodore PET character glyphs.
+
+- **Font:** Bundled **PetMe64.ttf** (KreativeKorp, free license) loaded via `petscii_render.get_pet_font()`; override with `TANK_PET_FONT=/path/to/font.ttf`. All text rendered with `antialias=False`.
+- **PETSCII mapping:** New `tank_game/petscii_map.py` decodes PETSCII bytes through `cbmcodecs2` (`petscii_c64en_uc` codec) into Unicode glyphs the PET font renders. `PET_MAP` covers border, wall, tank body, barrel (H/V), mine, shot, explosion spokes, and wreckage.
+- **Glyph cache:** `tank_game/petscii_render.py` — `glyph_surface()` (LRU-cached per char+color+size), `blit_cell()` / `blit_glyph()` helpers for the cell grid.
+- **Playfield:** `graphics.py` rewritten — border uses `0x51` (ball) around the perimeter, walls use `0x66` (checkered block), tanks are composite body+barrel glyphs, mines use `0x71`, shots use `0x51`.
+- **Explosions:** Multi-cell PETSCII composite — center circle with 8-way radial spokes (diagonal N/M line chars, cardinal H/V lines). Chain/catalyst explosions use a **larger** two-ring pattern.
+- **HUD:** `StatusDisplay` redesigned to PET-authentic two-row layout: solid-block green bar (`0xA0`), `TANKS SHOTS MINES` labels and numeric values, circle (`0x51`) center separators.
+- **Colors:** Monochrome **P1 phosphor green** `(51, 255, 51)` for all game elements (border, walls, tanks, shots, mines, text); dimmer green for wreckage.
+- **CRT effect:** Optional `TANK_CRT=1` — scanline overlay + bloom (downscale/upscale via `smoothscale`). `tank_game/crt_effect.py`.
+- **Dependency:** Added `cbmcodecs2>=1.0` to `pyproject.toml`.
+
 ### 0.7.1 - 2026-04-07
 
 - **Fix: 1P AI speed scaling.** The 0.7.0 skill-table overhaul removed `fast_mode` / `user_difficulty` but forgot to pass `move_delay` to the 1P `AIPlayer` constructor. The AI received its raw SHOWDOWN-tuned `reaction_time` (as low as 0.020s) while the human was gated by the difficulty-based `_move_delay` (0.1s-1.0s), making the AI impossibly fast at every level. Now passes `move_delay=self._move_delay` so `get_ai_config` scales reaction time proportionally to game speed.

@@ -1,9 +1,53 @@
+"""HUD and overlay rendering (PETSCII retro style).
+
+``StatusDisplay`` renders the PET-authentic two-row HUD: solid green bar
+background (``0xA0``) with ``TANKS / SHOTS / MINES`` labels+values and circle
+separators (``0x51``) in the center.
+
+``MessageOverlay`` draws centered multi-line text for menus / screens.
+"""
+
 from __future__ import annotations
 
 import pygame
 
-from .constants import COLOR_STATUS_BG, COLOR_TEXT, WINDOW_WIDTH
+from .constants import (
+    CELL_SIZE,
+    COLOR_PET_FG,
+    COLOR_STATUS_BG,
+    COLOR_TEXT,
+    SCREEN_WIDTH_CELLS,
+    STATUS_BAR_HEIGHT,
+    WINDOW_WIDTH,
+)
+from .petscii_map import PET_MAP
+from .petscii_render import blit_glyph, get_pet_font, glyph_surface
 from .player import Tank
+
+# HUD occupies 2 character rows (each CELL_SIZE px high).
+_HUD_ROWS = STATUS_BAR_HEIGHT // CELL_SIZE  # 2
+
+# Column layout (40 columns total):
+#   P1 panel: cols 0..17  (18 chars)
+#   Center:   cols 18..21 (4 chars — circle separator)
+#   P2 panel: cols 22..39 (18 chars)
+_CENTER_START = 18
+_CENTER_END = 22  # exclusive
+_P2_START = _CENTER_END
+
+
+def _hud_text_row0(tank: Tank, ai_diff: int | None) -> str:
+    """Row 0: ``TANKS  SHOTS  MINES``  (or + ``AI:n`` suffix)."""
+    s = "TANKS  SHOTS  MINES"
+    if ai_diff is not None:
+        # Trim to fit 18 cols if needed
+        s = f"TANKS SHOTS MINES {ai_diff}"
+    return s[:18].ljust(18)
+
+
+def _hud_text_row1(tank: Tank) -> str:
+    """Row 1: numeric values aligned under labels."""
+    return f"  {tank.lives}      {tank.shots_left}      {tank.mines_left}".ljust(18)[:18]
 
 
 class StatusDisplay:
@@ -16,34 +60,63 @@ class StatusDisplay:
         player1: Tank,
         player2: Tank,
         current_player_id: int | None = None,
-        ai_difficulty: dict[int, int] | None = None,  # player_id -> difficulty
+        ai_difficulty: dict[int, int] | None = None,
     ) -> None:
-        height = 40
-        rect = pygame.Rect(0, 0, WINDOW_WIDTH, height)
-        pygame.draw.rect(surface, COLOR_STATUS_BG, rect)
+        solid_ch = PET_MAP["SOLID"]
+        sep_ch = PET_MAP["BORDER"]
+        fg = COLOR_PET_FG
 
-        # Player 1 status
-        p1_text = f"P1 T:{player1.lives} S:{player1.shots_left} M:{player1.mines_left}"
-        if ai_difficulty and 1 in ai_difficulty:
-            p1_text += f" AI:{ai_difficulty[1]}"
-        p1_surf = self.font.render(p1_text, True, COLOR_TEXT)
+        # 1. Fill entire HUD area with solid blocks (green bar)
+        for row in range(_HUD_ROWS):
+            py = row * CELL_SIZE
+            for col in range(SCREEN_WIDTH_CELLS):
+                blit_glyph(surface, solid_ch, col * CELL_SIZE, py, fg, CELL_SIZE)
 
-        # Player 2 status
-        p2_text = f"P2 T:{player2.lives} S:{player2.shots_left} M:{player2.mines_left}"
-        if ai_difficulty and 2 in ai_difficulty:
-            p2_text += f" AI:{ai_difficulty[2]}"
-        p2_surf = self.font.render(p2_text, True, COLOR_TEXT)
+        # 2. Center separator — circles
+        for row in range(_HUD_ROWS):
+            py = row * CELL_SIZE
+            for col in range(_CENTER_START, _CENTER_END):
+                blit_glyph(surface, sep_ch, col * CELL_SIZE, py, fg, CELL_SIZE)
 
-        surface.blit(p1_surf, (10, 10))
-        surface.blit(p2_surf, (WINDOW_WIDTH - p2_surf.get_width() - 10, 10))
+        # 3. Player text panels (rendered as characters "punched" onto the bar)
+        ai1 = ai_difficulty.get(1) if ai_difficulty else None
+        ai2 = ai_difficulty.get(2) if ai_difficulty else None
 
-        if current_player_id is not None:
-            turn_text = f"TURN: P{current_player_id}"
-            turn_surf = self.font.render(turn_text, True, COLOR_TEXT)
-            surface.blit(
-                turn_surf,
-                ((WINDOW_WIDTH - turn_surf.get_width()) // 2, 10),
-            )
+        p1_row0 = _hud_text_row0(player1, ai1)
+        p1_row1 = _hud_text_row1(player1)
+        p2_row0 = _hud_text_row0(player2, ai2)
+        p2_row1 = _hud_text_row1(player2)
+
+        self._draw_panel_text(surface, 0, p1_row0, p1_row1)
+        self._draw_panel_text(surface, _P2_START, p2_row0, p2_row1)
+
+    def _draw_panel_text(
+        self,
+        surface: pygame.Surface,
+        start_col: int,
+        row0: str,
+        row1: str,
+    ) -> None:
+        """Draw two rows of HUD text starting at *start_col*.
+
+        Each character cell is first cleared to black (``COLOR_STATUS_BG``)
+        then the character glyph is blitted on top — matching the PET's
+        normal-mode character-on-dark-background within the solid-block bar.
+        """
+        font = get_pet_font(CELL_SIZE)
+        for i, ch in enumerate(row0):
+            if ch == " ":
+                continue
+            px = (start_col + i) * CELL_SIZE
+            pygame.draw.rect(surface, COLOR_STATUS_BG, (px, 0, CELL_SIZE, CELL_SIZE))
+            blit_glyph(surface, ch, px, 0, COLOR_PET_FG, CELL_SIZE)
+        for i, ch in enumerate(row1):
+            if ch == " ":
+                continue
+            px = (start_col + i) * CELL_SIZE
+            py = CELL_SIZE
+            pygame.draw.rect(surface, COLOR_STATUS_BG, (px, py, CELL_SIZE, CELL_SIZE))
+            blit_glyph(surface, ch, px, py, COLOR_PET_FG, CELL_SIZE)
 
 
 class MessageOverlay:
@@ -74,7 +147,7 @@ class MessageOverlay:
             y = (h - len(lines) * self.font.get_height()) // 2
             self._cached_blits = []
             for line in lines:
-                text_surf = self.font.render(line, True, COLOR_TEXT)
+                text_surf = self.font.render(line, False, COLOR_TEXT)
                 x = (w - text_surf.get_width()) // 2
                 self._cached_blits.append((text_surf, (x, y)))
                 y += self.font.get_height()
