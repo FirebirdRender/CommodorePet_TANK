@@ -199,4 +199,7 @@ def draw_wreckage(
                         inverted=True, bg=COLOR_BG,
                     )
                 else:
-                    blit_cell(surface, dot_ch, x, y, COLOR_WRECKAGE, CELL_SIZE, BOARD_OFFSET_Y)
+                    blit_cell(
+                        surface, dot_ch, x, y, COLOR_WRECKAGE, CELL_SIZE, BOARD_OFFSET_Y,
+                        inverted=True, bg=COLOR_BG,
+                    )

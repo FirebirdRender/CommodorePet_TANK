@@ -81,7 +81,7 @@ COLOR_SHOT = COLOR_PET_FG
 COLOR_MINE = COLOR_PET_FG
 COLOR_TEXT = COLOR_PET_FG
 COLOR_STATUS_BG = (0, 0, 0)
-COLOR_WRECKAGE = (0, 180, 0)  # Bright green wreckage, visible against black bg
+COLOR_WRECKAGE = COLOR_PET_FG  # Same phosphor green as all other elements (matches PET)
 COLOR_EXPLOSION = COLOR_PET_FG
 COLOR_EXPLOSION_CHAIN = (80, 255, 80)  # Slightly brighter for catalyst blasts
 

@@ -1,5 +1,9 @@
 ## Changelog
 
+### 0.9.5 - 2026-04-07
+
+- **Wreckage now full-brightness:** Dice-dot wreckage from tank explosions now uses `COLOR_PET_FG` (same phosphor green as walls/tanks/borders) and renders with inverted fill (guaranteed full-cell coverage). Previously used a dimmer green that could be nearly invisible.
+
 ### 0.9.4 - 2026-04-07
 
 - **Fix ghost barrel on direction swing:** Barrel swing (first keypress in a new direction) now properly clears the old barrel cell and places the new one. Previously, changing direction without moving left a phantom BARREL cell on the board that could be hit by incoming shots. Also fixed the same bug in AI barrel-direction changes (risky aim, risky restore, scan).
