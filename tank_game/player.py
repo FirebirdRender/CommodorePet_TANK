@@ -67,10 +67,9 @@ class Tank:
 
     def clear_from_board(self, board: Board) -> None:
         self._clear_barrel(board)
+        body_type = CellType.TANK1 if self.player_id == 1 else CellType.TANK2
         cell = board.get_cell(self.x, self.y)
-        if cell and cell.type == CellType.MINE:
-            board.set_cell_type(self.x, self.y, CellType.MINE)
-        else:
+        if cell and cell.type == body_type:
             board.set_cell_type(self.x, self.y, CellType.EMPTY)
 
     def attempt_move(self, board: Board, direction: Direction) -> bool:
