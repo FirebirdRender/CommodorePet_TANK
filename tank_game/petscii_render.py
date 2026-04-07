@@ -54,6 +54,25 @@ def glyph_surface(
     return font.render(char, False, color)
 
 
+@lru_cache(maxsize=512)
+def inverted_glyph_surface(
+    char: str,
+    fg: tuple[int, int, int],
+    bg: tuple[int, int, int],
+    size: int,
+) -> pygame.Surface:
+    """PET "reverse video" glyph: *fg*-filled cell with the glyph cut out in *bg*.
+
+    Used for border circles, tank bodies, etc. that appear as solid cells with
+    the character shape removed (inverted).
+    """
+    surf = pygame.Surface((size, size))
+    surf.fill(fg)
+    glyph = glyph_surface(char, bg, size)
+    surf.blit(glyph, (0, 0))
+    return surf
+
+
 def blit_glyph(
     surface: pygame.Surface,
     char: str,
@@ -66,6 +85,19 @@ def blit_glyph(
     surface.blit(glyph_surface(char, color, size), (px, py))
 
 
+def blit_inverted(
+    surface: pygame.Surface,
+    char: str,
+    px: int,
+    py: int,
+    fg: tuple[int, int, int],
+    bg: tuple[int, int, int],
+    size: int,
+) -> None:
+    """Blit an *inverted* (reverse-video) glyph at pixel position *(px, py)*."""
+    surface.blit(inverted_glyph_surface(char, fg, bg, size), (px, py))
+
+
 def blit_cell(
     surface: pygame.Surface,
     char: str,
@@ -74,6 +106,18 @@ def blit_cell(
     color: tuple[int, int, int],
     cell_size: int,
     offset_y: int = 0,
+    *,
+    inverted: bool = False,
+    bg: tuple[int, int, int] = (0, 0, 0),
 ) -> None:
-    """Blit a glyph into board cell *(cx, cy)* with optional vertical offset."""
-    blit_glyph(surface, char, cx * cell_size, offset_y + cy * cell_size, color, cell_size)
+    """Blit a glyph into board cell *(cx, cy)*.
+
+    When *inverted* is True, renders reverse-video (cell filled with *color*,
+    glyph drawn in *bg*).
+    """
+    px = cx * cell_size
+    py = offset_y + cy * cell_size
+    if inverted:
+        blit_inverted(surface, char, px, py, color, bg, cell_size)
+    else:
+        blit_glyph(surface, char, px, py, color, cell_size)

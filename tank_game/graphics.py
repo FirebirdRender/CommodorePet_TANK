@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-import pygame
-
 from .board import Board, CellType
 from .constants import (
     BOARD_OFFSET_Y,
@@ -100,7 +98,10 @@ def draw_board(surface: pygame.Surface, board: Board) -> None:
             cell = board.get_cell(x, y)
             is_border = x == 0 or x == board.width - 1 or y == 0 or y == board.height - 1
             if is_border:
-                blit_cell(surface, border_ch, x, y, COLOR_GRID, CELL_SIZE, BOARD_OFFSET_Y)
+                blit_cell(
+                    surface, border_ch, x, y, COLOR_GRID, CELL_SIZE, BOARD_OFFSET_Y,
+                    inverted=True, bg=COLOR_BG,
+                )
             elif cell and cell.type == CellType.WALL:
                 blit_cell(surface, wall_ch, x, y, COLOR_GRID, CELL_SIZE, BOARD_OFFSET_Y)
 
@@ -110,7 +111,10 @@ def draw_tanks(surface: pygame.Surface, tanks: Iterable[Tank]) -> None:
 
     for tank in tanks:
         color = COLOR_TANK_1 if tank.player_id == 1 else COLOR_TANK_2
-        blit_cell(surface, body_ch, tank.x, tank.y, color, CELL_SIZE, BOARD_OFFSET_Y)
+        blit_cell(
+            surface, body_ch, tank.x, tank.y, color, CELL_SIZE, BOARD_OFFSET_Y,
+            inverted=True, bg=COLOR_BG,
+        )
 
         barrel_ch = _BARREL_CHAR.get(tank.direction, PET_MAP["LINE_V"])
         dx, dy = _BARREL_OFFSET.get(tank.direction, (0, -1))
@@ -143,7 +147,10 @@ def draw_explosions(surface: pygame.Surface, explosions: Iterable[Explosion]) ->
         color = COLOR_EXPLOSION_CHAIN if is_big else COLOR_EXPLOSION
         spokes = _EXPLOSION_SPOKES_LARGE if is_big else _EXPLOSION_SPOKES_SMALL
 
-        blit_cell(surface, center_ch, exp.x, exp.y, color, CELL_SIZE, BOARD_OFFSET_Y)
+        blit_cell(
+            surface, center_ch, exp.x, exp.y, color, CELL_SIZE, BOARD_OFFSET_Y,
+            inverted=True, bg=COLOR_BG,
+        )
 
         for dx, dy, ch in spokes:
             sx, sy = exp.x + dx, exp.y + dy
