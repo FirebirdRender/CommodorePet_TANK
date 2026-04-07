@@ -865,9 +865,8 @@ class GameController:
             cell = self.board.get_cell(nx, ny)
             if cell is None:
                 continue
-            # Only place on empty/shot cells; don't overwrite borders or other tanks
-            if cell.type in {CellType.EMPTY, CellType.SHOT, CellType.MINE,
-                             CellType.BARREL1, CellType.BARREL2}:
+            if cell.type in {CellType.EMPTY, CellType.WALL, CellType.SHOT,
+                             CellType.MINE, CellType.BARREL1, CellType.BARREL2}:
                 self.board.set_cell_type(nx, ny, wreckage_type)
 
     def _tank_hit(self, tank: Tank, pos: tuple[int, int]) -> None:

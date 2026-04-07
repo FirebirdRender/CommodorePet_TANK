@@ -1,8 +1,10 @@
 ## Changelog
 
-### 0.9.1 - 2026-04-07
+### 0.9.2 - 2026-04-07
 
-- **Barrel-hit wreckage visual:** Barrel-shot tanks now leave a visible inverse-X body + curled barrel, matching the original PET wreckage appearance. Previously the body cell was invisible (rendered as a tiny solid dot instead of the distinctive inverse-X).
+- **Explosion wreckage now visible:** Dice-pattern wreckage from tank explosions now correctly overwrites WALL cells (matching original PET behavior where explosions destroy surrounding terrain). Previously walls blocked wreckage placement, leaving 0-2 of 4 dots at higher difficulties.
+- **Wreckage color brightened:** Changed from dim `(20,100,20)` to `(0,180,0)` so wreckage is clearly visible against the black background.
+- **Barrel-hit wreckage visual:** Barrel-shot tanks now leave a visible inverse-X body + curled barrel, matching the original PET wreckage appearance.
 
 ### 0.9.0 - 2026-04-07
 
