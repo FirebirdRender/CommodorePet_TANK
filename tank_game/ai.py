@@ -489,10 +489,10 @@ class AIPlayer:
         return True
 
     def effective_min_shots_for_aimed(self) -> int:
-        """FR-10: base reserve from ``confidence_threshold`` plus extra from ``ammo_discipline``."""
+        """FR-10: table ``confidence_threshold`` is the exact reserve needed."""
         import math
 
-        return math.ceil(self.config.confidence_threshold) + (self.config.ammo_discipline // 3)
+        return math.ceil(self.config.confidence_threshold)
 
     def should_skip_fire(self, kind: str = "aimed") -> bool:
         """FR-8: low skill sometimes hesitates and does not take a shot this tick."""
