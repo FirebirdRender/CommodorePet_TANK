@@ -1,7 +1,7 @@
 [project]
-name = "tank-game"
-version = "0.9.7"
-description = "Python 3 / PyGame recreation of the classic two-player TANK! game from Cursor Magazine #26."
+name = "tank-game-2p"
+version = "1.0.0"
+description = "Two-player-only Python 3 / PyGame recreation of the classic TANK! game from Cursor Magazine #26."
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [
@@ -9,7 +9,6 @@ authors = [
 ]
 dependencies = [
   "pygame>=2.5.0",
-  "py_trees>=2.2.0",
   "cbmcodecs2>=1.0",
 ]
 
@@ -45,8 +44,6 @@ select = ["E", "F", "I", "UP", "W"]
 ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
-# main.py runs `import py_trees` check before other imports (dependency bootstrap).
-"tank_game/main.py" = ["E402"]
 
 [tool.ruff.format]
 quote-style = "double"

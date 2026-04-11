@@ -48,6 +48,7 @@ htmlcov/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+hmem.config.json
 
 # Cursor / local agent state (not portable)
 .cursor/

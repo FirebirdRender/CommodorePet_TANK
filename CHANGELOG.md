@@ -1,5 +1,20 @@
 ## Changelog
 
+### 1.0.0 - 2026-04-10 — TANK! 2P Fork
+
+Two-player-only fork of the TANK! PyGame port. Stripped all AI, SHOWDOWN tournament, headless runner, Demo mode, and 1P mode.
+
+- **Package renamed** to `tank-game-2p`.
+- **Removed 9 AI source files:** `ai.py`, `ai_tree.py`, `ai_behaviours.py`, `ai_decorators.py`, `ai_navigation.py`, `ai_perception.py`, `ai_utility.py`, `ai_blackboard.py`, `showdown_worker.py`.
+- **Removed `py_trees` dependency** — only `pygame` and `cbmcodecs2` required.
+- **GameState reduced** from 16 to 8 values: `MENU`, `SKILL_SELECT`, `COUNTDOWN`, `PLAYING`, `ROUND_OVER`, `GAME_OVER`, `PLAY_AGAIN`, `QUIT`.
+- **Simplified menu flow:** MENU → SKILL SELECT (1–10) → PLAYING → winner → ANOTHER BATTLE? Y/N → restart or MENU.
+- **game.py** gutted from 1695 to ~878 lines (AI init, SHOWDOWN handlers, Demo logic, 1P mode removed).
+- **game_loop.py** reduced from 344 to ~117 lines (headless batch runner, dashboard, parallel thread removed).
+- **main.py** reduced from 121 to ~76 lines (py_trees check, headless FPS switching, render skip removed).
+- **constants.py** reduced from 159 to ~137 lines (HEADLESS/SHOWDOWN constants removed).
+- **Removed 9 AI/SHOWDOWN test files;** remaining tests cover board, player, projectile, and core game logic.
+
 ### 0.9.7 - 2026-04-07
 
 - **Fix: deferred empty-gun self-destruct.** Firing the last shot no longer immediately kills the player. The self-destruct is deferred until all of that player's in-flight projectiles resolve. If the last shot kills the opponent and ends the round, the firing player wins instead of dying first.
