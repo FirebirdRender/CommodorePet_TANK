@@ -1,6 +1,5 @@
 from collections import Counter
 
-import pygame
 from tank_game.board import CellType
 from tank_game.game import GameController, GameState
 

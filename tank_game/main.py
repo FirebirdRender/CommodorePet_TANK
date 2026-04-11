@@ -7,14 +7,14 @@ from datetime import datetime
 import pygame
 
 from .constants import (
+    CELL_SIZE,
     MAIN_LOOP_FPS,
     WINDOW_HEIGHT,
     WINDOW_WIDTH,
 )
-from .constants import CELL_SIZE
+from .crt_effect import apply_crt
 from .game import GameController
 from .game_loop import render_frame, tick_logic
-from .crt_effect import apply_crt
 from .petscii_render import get_pet_font
 from .ui import MessageOverlay, StatusDisplay
 

@@ -8,6 +8,10 @@ look (UI_RETRO_SPEC).
 from __future__ import annotations
 
 from collections.abc import Iterable
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pygame
 
 from .board import Board, CellType
 from .constants import (
@@ -27,7 +31,7 @@ from .constants import (
 )
 from .game import Explosion
 from .petscii_map import PET_MAP
-from .petscii_render import blit_cell, blit_glyph
+from .petscii_render import blit_cell
 from .player import Direction, Tank
 from .projectile import Mine, Shot
 

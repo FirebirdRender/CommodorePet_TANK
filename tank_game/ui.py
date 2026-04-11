@@ -19,11 +19,10 @@ from .constants import (
     COLOR_TEXT,
     SCREEN_WIDTH_CELLS,
     STATUS_BAR_HEIGHT,
-    WINDOW_WIDTH,
     difficulty_to_resources,
 )
 from .petscii_map import PET_MAP
-from .petscii_render import blit_glyph, blit_inverted, get_pet_font, glyph_surface
+from .petscii_render import blit_glyph, blit_inverted
 from .player import Tank
 
 # HUD occupies 2 character rows (each CELL_SIZE px high).

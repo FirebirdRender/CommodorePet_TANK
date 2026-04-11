@@ -1,6 +1,6 @@
 """Shot–shot interaction: same-cell and head-on adjacent swap (discrete pass-through)."""
 
-from tank_game.game import _shots_crossed_head_on, _shot_shot_explosion_key
+from tank_game.game import _shot_shot_explosion_key, _shots_crossed_head_on
 from tank_game.player import Direction
 from tank_game.projectile import Shot
 
