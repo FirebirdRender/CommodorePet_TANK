@@ -448,3 +448,230 @@ func TestBarrelSwing_SwingToNewDirTwice(t *testing.T) {
 		t.Fatalf("swing dir: got %v want %v", gc.SwingDir[1], DirLeft)
 	}
 }
+
+func TestFindSpawnPos_EmptyBoard(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+
+	x, y := gc.FindSpawnPos(20, 10)
+	if x != 20 || y != 10 {
+		t.Fatalf("FindSpawnPos: got (%d,%d) want (20,10)", x, y)
+	}
+}
+
+func TestFindSpawnPos_BlockedCenter(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	gc.Board.SetCellType(20, 10, CellWall)
+
+	x, y := gc.FindSpawnPos(20, 10)
+	if x != 20 || y != 9 {
+		t.Fatalf("FindSpawnPos blocked center: got (%d,%d) want (20,9)", x, y)
+	}
+}
+
+func TestFindSpawnPos_ScanOrder(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	gc.Board.SetCellType(20, 10, CellWall)
+
+	x, y := gc.FindSpawnPos(20, 10)
+	if x != 20 || y != 9 {
+		t.Fatalf("FindSpawnPos scan order: got (%d,%d) want up-first (20,9)", x, y)
+	}
+}
+
+func TestFindSpawnPos_NearEdge(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	gc.Board.SetCellType(20, 1, CellWall)
+
+	x, y := gc.FindSpawnPos(20, 1)
+	if x != 20 || y != 2 {
+		t.Fatalf("FindSpawnPos near edge: got (%d,%d) want (20,2)", x, y)
+	}
+}
+
+func TestRespawnSingle_ResetsAmmo(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	tank := gc.Tanks[0]
+	tank.ShotsLeft = 0
+	tank.MinesLeft = 0
+
+	gc.respawnSingleTank(1)
+
+	_, wantShots, wantMines := DifficultyToResources(gc.Difficulty)
+	if tank.ShotsLeft != wantShots || tank.MinesLeft != wantMines {
+		t.Fatalf("ammo after respawn: got (S=%d,M=%d) want (S=%d,M=%d)", tank.ShotsLeft, tank.MinesLeft, wantShots, wantMines)
+	}
+}
+
+func TestRespawnSingle_NewPosition(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	tank := gc.Tanks[0]
+	tank.ClearFromBoard(gc.Board)
+	tank.X, tank.Y, tank.Dir = 20, 15, DirUp
+	tank.OccupyBoard(gc.Board)
+
+	gc.Board.SetCellType(tank.StartX, tank.StartY, CellWall)
+
+	gc.respawnSingleTank(1)
+
+	if tank.X != tank.StartX || tank.Y != tank.StartY-1 {
+		t.Fatalf("respawn position: got (%d,%d) want (%d,%d)", tank.X, tank.Y, tank.StartX, tank.StartY-1)
+	}
+}
+
+func TestRespawnSingle_Direction(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	gc.Tanks[0].Dir = DirUp
+	gc.Tanks[1].Dir = DirDown
+
+	gc.respawnSingleTank(1)
+	gc.respawnSingleTank(2)
+
+	if gc.Tanks[0].Dir != DirRight {
+		t.Fatalf("P1 direction: got %v want DirRight", gc.Tanks[0].Dir)
+	}
+	if gc.Tanks[1].Dir != DirLeft {
+		t.Fatalf("P2 direction: got %v want DirLeft", gc.Tanks[1].Dir)
+	}
+}
+
+func TestRespawnSingle_DoesNotClearMines(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	mine := NewMine(10, 10, 1, 0.0)
+	gc.Mines = append(gc.Mines, mine)
+	gc.Board.SetCellType(10, 10, CellMine)
+
+	gc.respawnSingleTank(1)
+
+	if len(gc.Mines) != 1 {
+		t.Fatalf("mines list should be preserved: got %d want 1", len(gc.Mines))
+	}
+	if gc.Board.GetCell(10, 10) != CellMine {
+		t.Fatalf("mine on board should be preserved: got %v want CellMine", gc.Board.GetCell(10, 10))
+	}
+}
+
+func TestRespawnBoth_BothTanksReset(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	gc.Tanks[0].ShotsLeft, gc.Tanks[0].MinesLeft = 0, 0
+	gc.Tanks[1].ShotsLeft, gc.Tanks[1].MinesLeft = 0, 0
+
+	gc.Board.SetCellType(gc.Tanks[0].StartX, gc.Tanks[0].StartY, CellWall)
+	gc.Board.SetCellType(gc.Tanks[1].StartX, gc.Tanks[1].StartY, CellWall)
+
+	gc.respawnBothTanks()
+
+	_, wantShots, wantMines := DifficultyToResources(gc.Difficulty)
+	for i, tank := range gc.Tanks {
+		if tank.ShotsLeft != wantShots || tank.MinesLeft != wantMines {
+			t.Fatalf("tank %d ammo after respawn: got (S=%d,M=%d) want (S=%d,M=%d)", i+1, tank.ShotsLeft, tank.MinesLeft, wantShots, wantMines)
+		}
+		wantX, wantY := tank.StartX, tank.StartY-1
+		if tank.X != wantX || tank.Y != wantY {
+			t.Fatalf("tank %d position after respawn: got (%d,%d) want (%d,%d)", i+1, tank.X, tank.Y, wantX, wantY)
+		}
+	}
+}
+
+func TestRespawnBoth_DoesNotClearMines(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	mine := NewMine(10, 10, 1, 0.0)
+	gc.Mines = append(gc.Mines, mine)
+	gc.Board.SetCellType(10, 10, CellMine)
+
+	gc.respawnBothTanks()
+
+	if len(gc.Mines) != 1 {
+		t.Fatalf("mines list should be preserved: got %d want 1", len(gc.Mines))
+	}
+	if gc.Board.GetCell(10, 10) != CellMine {
+		t.Fatalf("mine on board should be preserved: got %v want CellMine", gc.Board.GetCell(10, 10))
+	}
+}
+
+func TestRespawnBoth_ClearsSwing(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	d1 := DirUp
+	d2 := DirDown
+	gc.SwingDir[1] = &d1
+	gc.SwingDir[2] = &d2
+
+	gc.respawnBothTanks()
+
+	if gc.SwingDir[1] != nil || gc.SwingDir[2] != nil {
+		t.Fatalf("swing dirs should be cleared: got p1=%v p2=%v", gc.SwingDir[1], gc.SwingDir[2])
+	}
+}
+
+func TestOnPlayerDefeated_WinnerSet(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+
+	gc.onPlayerDefeated(2)
+	if gc.Winner != 1 {
+		t.Fatalf("winner after player 2 defeat: got %d want 1", gc.Winner)
+	}
+
+	gc.onPlayerDefeated(1)
+	if gc.Winner != 2 {
+		t.Fatalf("winner after player 1 defeat: got %d want 2", gc.Winner)
+	}
+}
+
+func TestOnPlayerDefeated_WinsIncremented(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+
+	gc.onPlayerDefeated(2)
+	if gc.Wins[0] != 1 || gc.Wins[1] != 0 {
+		t.Fatalf("wins after p2 defeat: got %v want [1 0]", gc.Wins)
+	}
+	if gc.BattlesPlayed != 1 {
+		t.Fatalf("battles played: got %d want 1", gc.BattlesPlayed)
+	}
+}
+
+func TestInitRound_TankPositions(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	gc.InitRound()
+
+	if gc.Tanks[0].X != 2 || gc.Tanks[0].Y != 10 {
+		t.Fatalf("P1 position: got (%d,%d) want (2,10)", gc.Tanks[0].X, gc.Tanks[0].Y)
+	}
+	if gc.Tanks[1].X != 37 || gc.Tanks[1].Y != 10 {
+		t.Fatalf("P2 position: got (%d,%d) want (37,10)", gc.Tanks[1].X, gc.Tanks[1].Y)
+	}
+}
+
+func TestInitRound_TankDirections(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	gc.InitRound()
+
+	if gc.Tanks[0].Dir != DirRight {
+		t.Fatalf("P1 direction: got %v want DirRight", gc.Tanks[0].Dir)
+	}
+	if gc.Tanks[1].Dir != DirLeft {
+		t.Fatalf("P2 direction: got %v want DirLeft", gc.Tanks[1].Dir)
+	}
+}
+
+func TestInitRound_ClearsMines(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	mine := NewMine(10, 10, 1, 0.0)
+	gc.Mines = append(gc.Mines, mine)
+	gc.Board.SetCellType(10, 10, CellMine)
+
+	gc.InitRound()
+
+	if len(gc.Mines) != 0 {
+		t.Fatalf("mines should be cleared on init round: got %d", len(gc.Mines))
+	}
+}
+
+func TestInitRound_ClearsShots(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	gc.Shots = append(gc.Shots, NewShot(10, 10, DirRight, 1, 1))
+
+	gc.InitRound()
+
+	if len(gc.Shots) != 0 {
+		t.Fatalf("shots should be cleared on init round: got %d", len(gc.Shots))
+	}
+}
