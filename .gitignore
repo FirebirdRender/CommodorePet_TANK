@@ -62,7 +62,7 @@ docs/
 scripts/
 tasks/
 tests/
-
+PROJECT.2P/
 
 # Game / dev runtime output (see tank_game DEBUG_LOG_FILE, showdown summaries)
 tank_debug.log
