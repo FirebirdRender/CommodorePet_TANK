@@ -15,11 +15,13 @@ type BarrelWreckageEntry struct {
 }
 
 type GameController struct {
-	Board      *Board
-	Tanks      [2]*Tank
-	Shots      []*Shot
-	Mines      []*Mine
-	Explosions []*Explosion
+	Board        *Board
+	Tanks        [2]*Tank
+	Shots        []*Shot
+	Mines        []*Mine
+	Explosions   []*Explosion
+	SwingDir     map[int]*Direction
+	LastMoveTime map[int]float64
 
 	BarrelWreckageRegistry []BarrelWreckageEntry
 	BarrelHitBodies        map[[2]int]bool
@@ -60,16 +62,62 @@ func NewGameController(difficulty int, rng *rand.Rand) *GameController {
 	t1.OccupyBoard(board)
 	t2.OccupyBoard(board)
 
+	lastMoveTime := make(map[int]float64)
+	lastMoveTime[1] = -MoveDelay(difficulty)
+	lastMoveTime[2] = -MoveDelay(difficulty)
+
 	return &GameController{
 		Board:                  board,
 		Tanks:                  [2]*Tank{t1, t2},
 		Shots:                  []*Shot{},
 		Mines:                  []*Mine{},
 		Explosions:             []*Explosion{},
+		SwingDir:               make(map[int]*Direction),
+		LastMoveTime:           lastMoveTime,
 		BarrelWreckageRegistry: []BarrelWreckageEntry{},
 		BarrelHitBodies:        make(map[[2]int]bool),
 		Difficulty:             difficulty,
 	}
+}
+
+func (gc *GameController) ProcessMovement(playerID int, inputDir Direction, simTime float64) bool {
+	if simTime-gc.LastMoveTime[playerID] < MoveDelay(gc.Difficulty) {
+		return false
+	}
+
+	tank := gc.Tanks[playerID-1]
+	swingDir := gc.SwingDir[playerID]
+
+	if inputDir == tank.Dir {
+		tank.AttemptMove(gc.Board, inputDir)
+		gc.LastMoveTime[playerID] = simTime
+		gc.SwingDir[playerID] = nil
+		return true
+	}
+
+	if swingDir != nil && inputDir == *swingDir {
+		tank.AttemptMove(gc.Board, inputDir)
+		gc.LastMoveTime[playerID] = simTime
+		gc.SwingDir[playerID] = nil
+		return true
+	}
+
+	oldBarrelX, oldBarrelY := tank.BarrelPos()
+	if gc.Board.InBounds(oldBarrelX, oldBarrelY) && gc.Board.GetCell(oldBarrelX, oldBarrelY) == CellTypeForBarrel(tank.PlayerID) {
+		gc.Board.SetCellType(oldBarrelX, oldBarrelY, CellEmpty)
+	}
+
+	tank.Dir = inputDir
+
+	newBarrelX, newBarrelY := tank.BarrelPos()
+	if gc.Board.InBounds(newBarrelX, newBarrelY) && gc.Board.GetCell(newBarrelX, newBarrelY) == CellEmpty {
+		gc.Board.SetCellType(newBarrelX, newBarrelY, CellTypeForBarrel(tank.PlayerID))
+	}
+
+	dir := inputDir
+	gc.SwingDir[playerID] = &dir
+	gc.LastMoveTime[playerID] = simTime
+	return true
 }
 
 func (gc *GameController) PlaceDiceWreckage(cx, cy, playerID int) {

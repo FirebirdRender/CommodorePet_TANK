@@ -10,6 +10,19 @@ func newTestGC(difficulty int) *GameController {
 	return NewGameController(difficulty, rng)
 }
 
+func newTestGCClearBoard(difficulty int) *GameController {
+	rng := rand.New(rand.NewSource(42))
+	gc := NewGameController(difficulty, rng)
+	for y := 1; y < gc.Board.Height-1; y++ {
+		for x := 1; x < gc.Board.Width-1; x++ {
+			if gc.Board.GetCell(x, y) == CellWall {
+				gc.Board.SetCellType(x, y, CellEmpty)
+			}
+		}
+	}
+	return gc
+}
+
 func TestPlaceDiceWreckage_CornerPositions(t *testing.T) {
 	gc := newTestGC(5)
 	clearInterior(gc.Board)
@@ -309,5 +322,129 @@ func TestNewGameController_InitialState(t *testing.T) {
 
 	if gc.Board.GetCell(0, 0) != CellWall || gc.Board.GetCell(BoardWidth-1, BoardHeight-1) != CellWall {
 		t.Fatal("board borders should be walls")
+	}
+}
+
+func TestBarrelSwing_DirectionChange(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	tank := gc.Tanks[0]
+	startX, startY := tank.X, tank.Y
+
+	ok := gc.ProcessMovement(1, DirUp, 0.0)
+	if !ok {
+		t.Fatal("expected swing to succeed")
+	}
+	if tank.Dir != DirUp {
+		t.Fatalf("direction: got %v want %v", tank.Dir, DirUp)
+	}
+	if tank.X != startX || tank.Y != startY {
+		t.Fatalf("position should not change on swing: got (%d,%d) want (%d,%d)", tank.X, tank.Y, startX, startY)
+	}
+}
+
+func TestBarrelSwing_SameDirection(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	tank := gc.Tanks[0]
+	startX, startY := tank.X, tank.Y
+
+	ok := gc.ProcessMovement(1, DirRight, 0.0)
+	if !ok {
+		t.Fatal("expected move input to succeed")
+	}
+	if tank.X != startX+1 || tank.Y != startY {
+		t.Fatalf("position: got (%d,%d) want (%d,%d)", tank.X, tank.Y, startX+1, startY)
+	}
+}
+
+func TestBarrelSwing_BarrelReplacedOnBoard(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	tank := gc.Tanks[0]
+	oldBX, oldBY := tank.BarrelPos()
+
+	ok := gc.ProcessMovement(1, DirUp, 0.0)
+	if !ok {
+		t.Fatal("expected swing to succeed")
+	}
+
+	if got := gc.Board.GetCell(oldBX, oldBY); got != CellEmpty {
+		t.Fatalf("old barrel cell: got %v want CellEmpty", got)
+	}
+	newBX, newBY := tank.BarrelPos()
+	if got := gc.Board.GetCell(newBX, newBY); got != CellBarrel1 {
+		t.Fatalf("new barrel cell: got %v want CellBarrel1", got)
+	}
+}
+
+func TestBarrelSwing_MoveDelayRespected(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+
+	if ok := gc.ProcessMovement(1, DirRight, 0.0); !ok {
+		t.Fatal("first movement at t=0 should succeed")
+	}
+	delay := MoveDelay(gc.Difficulty)
+	if ok := gc.ProcessMovement(1, DirRight, delay-0.01); ok {
+		t.Fatal("movement before delay threshold should fail")
+	}
+}
+
+func TestBarrelSwing_MoveDelayAllowed(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	tank := gc.Tanks[0]
+	startX := tank.X
+
+	if ok := gc.ProcessMovement(1, DirRight, 0.0); !ok {
+		t.Fatal("first movement at t=0 should succeed")
+	}
+	delay := MoveDelay(gc.Difficulty)
+	if ok := gc.ProcessMovement(1, DirRight, delay); !ok {
+		t.Fatal("movement at delay threshold should succeed")
+	}
+	if tank.X != startX+2 {
+		t.Fatalf("expected two moves to the right: got X=%d want %d", tank.X, startX+2)
+	}
+}
+
+func TestBarrelSwing_SwingThenMove(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	tank := gc.Tanks[0]
+	startX, startY := tank.X, tank.Y
+
+	if ok := gc.ProcessMovement(1, DirUp, 0.0); !ok {
+		t.Fatal("swing should succeed")
+	}
+	if tank.X != startX || tank.Y != startY {
+		t.Fatalf("position should not change on swing: got (%d,%d) want (%d,%d)", tank.X, tank.Y, startX, startY)
+	}
+
+	delay := MoveDelay(gc.Difficulty)
+	if ok := gc.ProcessMovement(1, DirUp, delay); !ok {
+		t.Fatal("move after swing with same direction should succeed")
+	}
+	if tank.X != startX || tank.Y != startY-1 {
+		t.Fatalf("position after swing-then-move: got (%d,%d) want (%d,%d)", tank.X, tank.Y, startX, startY-1)
+	}
+}
+
+func TestBarrelSwing_SwingToNewDirTwice(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	tank := gc.Tanks[0]
+	startX, startY := tank.X, tank.Y
+
+	if ok := gc.ProcessMovement(1, DirUp, 0.0); !ok {
+		t.Fatal("first swing should succeed")
+	}
+	delay := MoveDelay(gc.Difficulty)
+	if ok := gc.ProcessMovement(1, DirLeft, delay); !ok {
+		t.Fatal("second swing to new direction should succeed")
+	}
+
+	if tank.Dir != DirLeft {
+		t.Fatalf("direction: got %v want %v", tank.Dir, DirLeft)
+	}
+	if tank.X != startX || tank.Y != startY {
+		t.Fatalf("position should not change on two swings: got (%d,%d) want (%d,%d)", tank.X, tank.Y, startX, startY)
+	}
+	if gc.SwingDir[1] == nil || *gc.SwingDir[1] != DirLeft {
+		t.Fatalf("swing dir: got %v want %v", gc.SwingDir[1], DirLeft)
 	}
 }
