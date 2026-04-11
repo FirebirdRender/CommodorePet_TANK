@@ -30,6 +30,7 @@ type GameController struct {
 
 	BarrelWreckageRegistry []BarrelWreckageEntry
 	BarrelHitBodies        map[[2]int]bool
+	EmptyGunPending        map[int]bool
 
 	Difficulty int
 	SimTime    float64
@@ -81,6 +82,7 @@ func NewGameController(difficulty int, rng *rand.Rand) *GameController {
 		LastMoveTime:           lastMoveTime,
 		BarrelWreckageRegistry: []BarrelWreckageEntry{},
 		BarrelHitBodies:        make(map[[2]int]bool),
+		EmptyGunPending:        make(map[int]bool),
 		Difficulty:             difficulty,
 		Winner:                 0,
 		State:                  StatePlaying,
@@ -126,6 +128,221 @@ func (gc *GameController) ProcessMovement(playerID int, inputDir Direction, simT
 	gc.SwingDir[playerID] = &dir
 	gc.LastMoveTime[playerID] = simTime
 	return true
+}
+
+func (gc *GameController) ApplyInput(playerID int, action Action) {
+	if gc.State != StatePlaying {
+		return
+	}
+
+	switch action {
+	case ActionFire:
+		gc.FireShot(playerID)
+	case ActionPlaceMine:
+		gc.PlaceMineAction(playerID)
+	default:
+		dir, ok := ActionToDirection(action)
+		if ok {
+			gc.ProcessMovement(playerID, dir, gc.SimTime)
+			gc.ResolveTankMineCollision(gc.Tanks[playerID-1])
+		}
+	}
+}
+
+func (gc *GameController) PlaceMineAction(playerID int) {
+	tank := gc.Tanks[playerID-1]
+	mine := PlaceMine(tank, gc.Board, gc.SimTime)
+	if mine != nil {
+		gc.Mines = append(gc.Mines, mine)
+	}
+}
+
+func (gc *GameController) ShotSpawnPosition(tank *Tank) ([2]int, bool) {
+	v := DirectionVectors[tank.Dir]
+	x, y := tank.X+v[0], tank.Y+v[1]
+	if !gc.Board.InBounds(x, y) {
+		return [2]int{}, false
+	}
+	if gc.Board.GetCell(x, y) == CellWall {
+		return [2]int{}, false
+	}
+	return [2]int{x, y}, true
+}
+
+func (gc *GameController) FireShot(playerID int) {
+	tank := gc.Tanks[playerID-1]
+	if !tank.CanFire() {
+		return
+	}
+
+	for _, s := range gc.Shots {
+		if s.Active && s.OwnerID == playerID {
+			return
+		}
+	}
+
+	pos, ok := gc.ShotSpawnPosition(tank)
+	if !ok {
+		return
+	}
+
+	v := DirectionVectors[tank.Dir]
+	var maxRange int
+	if v[0] != 0 && v[1] != 0 {
+		minDim := gc.Board.Width
+		if gc.Board.Height < minDim {
+			minDim = gc.Board.Height
+		}
+		maxRange = int(0.75 * float64(minDim))
+	} else if v[0] != 0 {
+		maxRange = int(0.75 * float64(gc.Board.Width))
+	} else {
+		maxRange = int(0.75 * float64(gc.Board.Height))
+	}
+
+	shot := NewShot(pos[0], pos[1], tank.Dir, playerID, maxRange)
+	gc.Shots = append(gc.Shots, shot)
+	tank.ConsumeShot()
+
+	if tank.ShotsLeft == 0 {
+		gc.EmptyGunPending[playerID] = true
+	}
+}
+
+func (gc *GameController) Update(dt float64) {
+	if gc.State != StatePlaying {
+		return
+	}
+
+	gc.SimTime += dt
+	gc.updateShots()
+	gc.updateMines()
+	gc.updateExplosions()
+}
+
+func (gc *GameController) updateShots() {
+	for _, shot := range gc.Shots {
+		if shot.Active {
+			shot.StepStartX = shot.X
+			shot.StepStartY = shot.Y
+		}
+	}
+
+	for _, shot := range gc.Shots {
+		if gc.SimTime-shot.LastMoveTime < ShotDelay {
+			continue
+		}
+		if !shot.Active {
+			continue
+		}
+
+		collisionPos := shot.Step(gc.Board)
+		if shot.Active {
+			shot.LastMoveTime = gc.SimTime
+		} else {
+			shot.CollisionPos = collisionPos
+		}
+	}
+
+	pairs := DetectShotShotCollisions(gc)
+	shotShotKeys := make(map[[2]int]bool)
+	for _, pair := range pairs {
+		s1, s2 := gc.Shots[pair[0]], gc.Shots[pair[1]]
+		crossed := ShotsCrossedHeadOn(s1, s2)
+		key := ShotShotExplosionKey(s1, s2, crossed)
+		s1.Active = false
+		s2.Active = false
+		if !shotShotKeys[key] {
+			shotShotKeys[key] = true
+			gc.ExplodeMine(key[0], key[1], 2, true)
+		}
+	}
+
+	for _, shot := range gc.Shots {
+		var cx, cy int
+		if shot.CollisionPos != nil {
+			cx, cy = shot.CollisionPos[0], shot.CollisionPos[1]
+			shot.CollisionPos = nil
+		} else {
+			if !shot.Active {
+				continue
+			}
+			cx, cy = shot.X, shot.Y
+		}
+
+		cell := gc.Board.GetCell(cx, cy)
+		switch cell {
+		case CellBarrel1, CellBarrel2:
+			targetID := 1
+			if cell == CellBarrel2 {
+				targetID = 2
+			}
+			if targetID == shot.OwnerID {
+				continue
+			}
+			gc.BarrelHit(gc.Tanks[targetID-1], [2]int{cx, cy})
+		case CellTank1, CellTank2:
+			targetID := 1
+			if cell == CellTank2 {
+				targetID = 2
+			}
+			gc.TankHit(gc.Tanks[targetID-1], [2]int{cx, cy})
+		case CellMine:
+			for _, mine := range gc.Mines {
+				if mine.Active && mine.X == cx && mine.Y == cy {
+					mine.Active = false
+					gc.ExplodeMine(mine.X, mine.Y, 2, true)
+					break
+				}
+			}
+		}
+	}
+
+	active := gc.Shots[:0]
+	for _, s := range gc.Shots {
+		if s.Active || s.CollisionPos != nil {
+			active = append(active, s)
+		}
+	}
+	gc.Shots = active
+
+	for pid, pending := range gc.EmptyGunPending {
+		if !pending {
+			continue
+		}
+		hasActive := false
+		for _, s := range gc.Shots {
+			if s.Active && s.OwnerID == pid {
+				hasActive = true
+				break
+			}
+		}
+		if !hasActive {
+			delete(gc.EmptyGunPending, pid)
+			tank := gc.Tanks[pid-1]
+			if tank.IsAlive() && gc.State == StatePlaying {
+				gc.TankHit(tank, [2]int{tank.X, tank.Y})
+			}
+		}
+	}
+}
+
+func (gc *GameController) updateMines() {
+	for _, mine := range gc.Mines {
+		if mine.Active {
+			mine.UpdateVisibility(gc.SimTime)
+		}
+	}
+}
+
+func (gc *GameController) updateExplosions() {
+	active := gc.Explosions[:0]
+	for _, exp := range gc.Explosions {
+		if gc.SimTime-exp.StartTime < exp.Duration {
+			active = append(active, exp)
+		}
+	}
+	gc.Explosions = active
 }
 
 func (gc *GameController) PlaceDiceWreckage(cx, cy, playerID int) {
@@ -267,6 +484,7 @@ func (gc *GameController) InitRound() {
 
 	gc.BarrelWreckageRegistry = []BarrelWreckageEntry{}
 	gc.BarrelHitBodies = make(map[[2]int]bool)
+	gc.EmptyGunPending = make(map[int]bool)
 }
 
 func (gc *GameController) respawnBothTanks() {

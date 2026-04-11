@@ -675,3 +675,359 @@ func TestInitRound_ClearsShots(t *testing.T) {
 		t.Fatalf("shots should be cleared on init round: got %d", len(gc.Shots))
 	}
 }
+
+func TestFireShot_Success(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	tk := gc.Tanks[0]
+	bx, by := tk.BarrelPos()
+	startShots := tk.ShotsLeft
+
+	gc.FireShot(1)
+
+	if len(gc.Shots) != 1 {
+		t.Fatalf("shots len: got %d want 1", len(gc.Shots))
+	}
+	if gc.Shots[0].X != bx || gc.Shots[0].Y != by {
+		t.Fatalf("shot spawn: got (%d,%d) want (%d,%d)", gc.Shots[0].X, gc.Shots[0].Y, bx, by)
+	}
+	if tk.ShotsLeft != startShots-1 {
+		t.Fatalf("ShotsLeft: got %d want %d", tk.ShotsLeft, startShots-1)
+	}
+}
+
+func TestFireShot_MaxOneActive(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+
+	gc.FireShot(1)
+	gc.FireShot(1)
+
+	if len(gc.Shots) != 1 {
+		t.Fatalf("second fire while active shot exists should be rejected: got %d shots want 1", len(gc.Shots))
+	}
+}
+
+func TestFireShot_BlockedByWall(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	tk := gc.Tanks[0]
+	bx, by := tk.BarrelPos()
+	startShots := tk.ShotsLeft
+	gc.Board.SetCellType(bx, by, CellWall)
+
+	gc.FireShot(1)
+
+	if len(gc.Shots) != 0 {
+		t.Fatalf("blocked barrel should not spawn shot: got %d", len(gc.Shots))
+	}
+	if tk.ShotsLeft != startShots {
+		t.Fatalf("ShotsLeft should not change: got %d want %d", tk.ShotsLeft, startShots)
+	}
+}
+
+func TestFireShot_NoAmmo(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	tk := gc.Tanks[0]
+	tk.ShotsLeft = 0
+
+	gc.FireShot(1)
+
+	if len(gc.Shots) != 0 {
+		t.Fatalf("no ammo should not spawn shot: got %d", len(gc.Shots))
+	}
+}
+
+func TestFireShot_MaxRange(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	tk := gc.Tanks[0]
+
+	tk.Dir = DirRight
+	gc.FireShot(1)
+	if got, want := gc.Shots[len(gc.Shots)-1].MaxRange, int(0.75*float64(gc.Board.Width)); got != want {
+		t.Fatalf("horizontal max range: got %d want %d", got, want)
+	}
+
+	gc.Shots = nil
+	tk.ShotsLeft = 10
+	tk.Dir = DirUp
+	gc.FireShot(1)
+	if got, want := gc.Shots[len(gc.Shots)-1].MaxRange, int(0.75*float64(gc.Board.Height)); got != want {
+		t.Fatalf("vertical max range: got %d want %d", got, want)
+	}
+
+	gc.Shots = nil
+	tk.ShotsLeft = 10
+	tk.Dir = DirUpRight
+	gc.FireShot(1)
+	minDim := gc.Board.Width
+	if gc.Board.Height < minDim {
+		minDim = gc.Board.Height
+	}
+	if got, want := gc.Shots[len(gc.Shots)-1].MaxRange, int(0.75*float64(minDim)); got != want {
+		t.Fatalf("diagonal max range: got %d want %d", got, want)
+	}
+}
+
+func TestShotSpawnPosition_Normal(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	tk := gc.Tanks[0]
+	bx, by := tk.BarrelPos()
+
+	pos, ok := gc.ShotSpawnPosition(tk)
+
+	if !ok {
+		t.Fatal("expected valid spawn position")
+	}
+	if pos != [2]int{bx, by} {
+		t.Fatalf("spawn pos: got %v want [%d %d]", pos, bx, by)
+	}
+}
+
+func TestShotSpawnPosition_WallBlocked(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	tk := gc.Tanks[0]
+	bx, by := tk.BarrelPos()
+	gc.Board.SetCellType(bx, by, CellWall)
+
+	_, ok := gc.ShotSpawnPosition(tk)
+
+	if ok {
+		t.Fatal("spawn should be blocked by wall")
+	}
+}
+
+func TestShotSpawnPosition_OutOfBounds(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	tk := gc.Tanks[0]
+	tk.X = 0
+	tk.Y = 10
+	tk.Dir = DirLeft
+
+	_, ok := gc.ShotSpawnPosition(tk)
+
+	if ok {
+		t.Fatal("spawn should be out of bounds")
+	}
+}
+
+func TestUpdateShots_ShotAdvances(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	gc.Shots = []*Shot{NewShot(10, 10, DirRight, 1, 30)}
+	gc.SimTime = ShotDelay
+
+	gc.updateShots()
+
+	if len(gc.Shots) != 1 {
+		t.Fatalf("shots len: got %d want 1", len(gc.Shots))
+	}
+	if gc.Shots[0].X != 11 || gc.Shots[0].Y != 10 {
+		t.Fatalf("shot position: got (%d,%d) want (11,10)", gc.Shots[0].X, gc.Shots[0].Y)
+	}
+}
+
+func TestUpdateShots_ShotTimingGate(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	gc.Shots = []*Shot{NewShot(10, 10, DirRight, 1, 30)}
+	gc.SimTime = ShotDelay - 0.01
+
+	gc.updateShots()
+
+	if gc.Shots[0].X != 10 || gc.Shots[0].Y != 10 {
+		t.Fatalf("shot should not move before ShotDelay: got (%d,%d) want (10,10)", gc.Shots[0].X, gc.Shots[0].Y)
+	}
+}
+
+func TestUpdateShots_TankHitTriggered(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	t2 := gc.Tanks[1]
+	t2.ClearFromBoard(gc.Board)
+	t2.X, t2.Y, t2.Dir = 15, 10, DirLeft
+	t2.OccupyBoard(gc.Board)
+	startLives := t2.Lives
+
+	gc.Shots = []*Shot{NewShot(14, 10, DirRight, 1, 30)}
+	gc.SimTime = ShotDelay
+
+	gc.updateShots()
+
+	if t2.Lives != startLives-1 {
+		t.Fatalf("enemy tank should be hit: got lives %d want %d", t2.Lives, startLives-1)
+	}
+}
+
+func TestUpdateShots_BarrelHitTriggered(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	t2 := gc.Tanks[1]
+	t2.ClearFromBoard(gc.Board)
+	t2.X, t2.Y, t2.Dir = 15, 10, DirLeft
+	t2.OccupyBoard(gc.Board)
+	startLives := t2.Lives
+
+	gc.Shots = []*Shot{NewShot(13, 10, DirRight, 1, 30)}
+	gc.SimTime = ShotDelay
+
+	gc.updateShots()
+
+	if t2.Lives != startLives-1 {
+		t.Fatalf("enemy barrel hit should damage tank: got lives %d want %d", t2.Lives, startLives-1)
+	}
+	if len(gc.BarrelWreckageRegistry) == 0 {
+		t.Fatal("barrel hit should register wreckage entry")
+	}
+}
+
+func TestUpdateShots_MineHitTriggered(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	m := NewMine(12, 10, 2, 0)
+	gc.Mines = []*Mine{m}
+	gc.Board.SetCellType(12, 10, CellMine)
+	gc.Shots = []*Shot{NewShot(11, 10, DirRight, 1, 30)}
+	gc.SimTime = ShotDelay
+
+	gc.updateShots()
+
+	if m.Active {
+		t.Fatal("mine should deactivate when hit by shot")
+	}
+	if len(gc.Explosions) == 0 {
+		t.Fatal("mine hit should trigger explosion")
+	}
+	if !gc.Explosions[0].IsChainReaction {
+		t.Fatal("shot-hit mine explosion should be chain reaction")
+	}
+}
+
+func TestUpdateShots_ShotShotCollision(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	gc.Shots = []*Shot{
+		NewShot(20, 10, DirRight, 1, 30),
+		NewShot(22, 10, DirLeft, 2, 30),
+	}
+	gc.SimTime = ShotDelay
+
+	gc.updateShots()
+
+	if len(gc.Shots) != 0 {
+		t.Fatalf("colliding shots should be removed: got %d", len(gc.Shots))
+	}
+	if len(gc.Explosions) != 1 {
+		t.Fatalf("shot-shot collision should produce one deduped explosion: got %d", len(gc.Explosions))
+	}
+}
+
+func TestEmptyGun_SelfDestruct(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	t1 := gc.Tanks[0]
+	t1.ShotsLeft = 1
+	gc.Board.SetCellType(t1.X+2, t1.Y, CellWall)
+
+	gc.FireShot(1)
+	gc.Update(ShotDelay)
+
+	if t1.Lives != 2 {
+		t.Fatalf("tank should self-destruct after last shot resolves: got lives %d want 2", t1.Lives)
+	}
+	if _, exists := gc.EmptyGunPending[1]; exists {
+		t.Fatal("empty-gun pending should clear after self-destruct")
+	}
+}
+
+func TestEmptyGun_NotTriggeredWhileShotActive(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	t1 := gc.Tanks[0]
+	t1.ShotsLeft = 1
+
+	gc.FireShot(1)
+	gc.Update(ShotDelay)
+
+	if t1.Lives != 3 {
+		t.Fatalf("tank should not self-destruct while shot still active: got lives %d want 3", t1.Lives)
+	}
+	if !gc.EmptyGunPending[1] {
+		t.Fatal("empty-gun pending should remain while active shot exists")
+	}
+}
+
+func TestUpdate_ExplosionCleanup(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	gc.SimTime = 5.0
+	gc.Explosions = []*Explosion{
+		{X: 1, Y: 1, StartTime: 4.0, Duration: 1.0},
+		{X: 2, Y: 2, StartTime: 4.6, Duration: 1.0},
+	}
+
+	gc.Update(0.0)
+
+	if len(gc.Explosions) != 1 {
+		t.Fatalf("expired explosions should be removed: got %d want 1", len(gc.Explosions))
+	}
+	if gc.Explosions[0].X != 2 || gc.Explosions[0].Y != 2 {
+		t.Fatalf("remaining explosion should be the non-expired one: got (%d,%d)", gc.Explosions[0].X, gc.Explosions[0].Y)
+	}
+}
+
+func TestApplyInput_RoutesToMovement(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	t1 := gc.Tanks[0]
+	startX, startY := t1.X, t1.Y
+
+	gc.ApplyInput(1, ActionRight)
+
+	if t1.X != startX+1 || t1.Y != startY {
+		t.Fatalf("movement action should move tank: got (%d,%d) want (%d,%d)", t1.X, t1.Y, startX+1, startY)
+	}
+}
+
+func TestApplyInput_RoutesToFire(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+
+	gc.ApplyInput(1, ActionFire)
+
+	if len(gc.Shots) != 1 {
+		t.Fatalf("fire action should spawn shot: got %d", len(gc.Shots))
+	}
+}
+
+func TestApplyInput_RoutesToMine(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+
+	gc.ApplyInput(1, ActionPlaceMine)
+
+	if len(gc.Mines) != 1 {
+		t.Fatalf("mine action should place mine: got %d", len(gc.Mines))
+	}
+}
+
+func TestApplyInput_MoveTriggersMineCheck(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	t1 := gc.Tanks[0]
+	t1.ClearFromBoard(gc.Board)
+	t1.X, t1.Y, t1.Dir = 20, 10, DirRight
+	t1.OccupyBoard(gc.Board)
+	mx, my := 21, 10
+	m := NewMine(mx, my, 2, 0)
+	gc.Mines = []*Mine{m}
+	gc.Board.SetCellType(mx, my, CellMine)
+
+	gc.ApplyInput(1, ActionRight)
+
+	if t1.Lives != 2 {
+		t.Fatalf("moving onto mine should damage tank: got lives %d want 2", t1.Lives)
+	}
+	if m.Active {
+		t.Fatal("mine should deactivate after tank collision")
+	}
+}
+
+func TestPlaceMineAction_Success(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	t1 := gc.Tanks[0]
+	t1.MinesLeft = 1
+
+	gc.PlaceMineAction(1)
+
+	if len(gc.Mines) != 1 {
+		t.Fatalf("mine should be added to controller: got %d", len(gc.Mines))
+	}
+	if t1.MinesLeft != 0 {
+		t.Fatalf("MinesLeft should decrement: got %d want 0", t1.MinesLeft)
+	}
+}

@@ -1,15 +1,17 @@
 package engine
 
 type Shot struct {
-	X, Y       int
-	Dir        Direction
-	Active     bool
-	OwnerID    int
-	MaxRange   int
-	StepsTaken int
-	HitWall    bool
-	StepStartX int
-	StepStartY int
+	X, Y         int
+	Dir          Direction
+	Active       bool
+	OwnerID      int
+	MaxRange     int
+	StepsTaken   int
+	HitWall      bool
+	StepStartX   int
+	StepStartY   int
+	LastMoveTime float64
+	CollisionPos *[2]int
 }
 
 func NewShot(x, y int, dir Direction, ownerID, maxRange int) *Shot {
