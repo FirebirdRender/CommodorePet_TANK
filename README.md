@@ -4,7 +4,7 @@
 
 ### Features
 
-- **Two-player** local play on a shared keyboard: **left tank** — WASD + Left Ctrl (fire); **right tank** — numpad (8/4/6/2 move, 0 fire). Simultaneous movement.
+- **Two-player** local play on a shared keyboard: **left tank** — numpad-style with S as the center (fire); **right tank** — numpad (all 8 directions move, 5 fire). Simultaneous movement.
 - **Skill levels 1–10** — terrain density, ammo, mines, and tank speed scale with difficulty.
 - **PETSCII retro visuals** — all game elements (border, walls, tanks, shots, mines, explosions, HUD) rendered as Commodore PET character glyphs via bundled PetMe64 font. Monochrome phosphor-green palette. Optional CRT scanline effect (`TANK_CRT=1`).
 
