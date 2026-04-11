@@ -33,30 +33,8 @@ MOVE_DELAY_MIN: float = 0.2
 # ~0.1s per cell → 3s to cross 75% of 40-cell width, ~2s for height.
 SHOT_DELAY: float = 0.1
 
-# Headless SHOWDOWN: wall time per frame for the sim batch (runtime ↑/↓ on dashboard).
-# Default 50 ms balances sim throughput vs UI/event responsiveness on typical displays.
-HEADLESS_WALL_BUDGET_DEFAULT_S: float = 0.050
-HEADLESS_WALL_BUDGET_MIN_S: float = 0.001
-HEADLESS_WALL_BUDGET_MAX_S: float = 0.250
-HEADLESS_WALL_BUDGET_STEP_S: float = 0.002
-
-# Inside ``run_headless_showdown_batch``, poll SDL / ESC only every N sim steps — **not** every
-# step. Per-step ``pygame.event.pump()`` dominates CPU and caps sim rate (~few×) regardless of
-# wall budget or main-loop FPS.
-HEADLESS_INNER_POLL_INTERVAL_STEPS: int = 64
-
-# Main loop: normal play caps at 60 FPS. Headless SHOWDOWN raises this so ``tick_logic`` /
-# ``run_headless_showdown_batch`` run more often per wall second (otherwise ~60 Hz caps sim rate).
+# Main loop FPS
 MAIN_LOOP_FPS: int = 60
-# Pygame: ``Clock.tick(0)`` does not cap framerate (no delay between frames).
-HEADLESS_SHOWDOWN_MAIN_LOOP_FPS: int = 240
-
-# Parallel SHOWDOWN worker: abort a single match attempt if any limit is hit (then retry with a
-# new seed). Tuned so normal matches (~5–30 s sim) finish easily; stuck / oscillating games exit.
-SHOWDOWN_WORKER_MAX_SIM_TIME_S: float = 600.0  # simulated seconds per attempt
-SHOWDOWN_WORKER_MAX_STEPS: int = 2_000_000  # hard cap on update() iterations per attempt
-SHOWDOWN_WORKER_MAX_WALL_S: float = 180.0  # wall-clock seconds per attempt (safety)
-SHOWDOWN_WORKER_MAX_RETRIES: int = 5  # per match; re-run with new seed after timeout
 
 
 def get_move_delay(difficulty: int) -> float:
@@ -86,7 +64,7 @@ COLOR_EXPLOSION = COLOR_PET_FG
 COLOR_EXPLOSION_CHAIN = (80, 255, 80)  # Slightly brighter for catalyst blasts
 
 # Key bindings (per player) — built lazily to avoid importing pygame/SDL in
-# headless worker processes.  Access via module attribute (e.g.
+# worker processes.  Access via module attribute (e.g.
 # ``from .constants import PLAYER1_KEYS``) which triggers ``__getattr__``.
 _PLAYER_KEYS_CACHE: dict[str, dict[str, int]] | None = None
 

@@ -4,34 +4,15 @@ import os
 import sys
 from datetime import datetime
 
-
-def _require_runtime_deps() -> None:
-    """Fail fast with install instructions if dependencies from pyproject.toml are missing."""
-    try:
-        import py_trees  # noqa: F401
-    except ModuleNotFoundError:
-        sys.stderr.write(
-            "Error: py_trees is not installed. The game lists it in pyproject.toml.\n"
-            "From the project root, run:\n"
-            "  pip install -e .\n"
-            "For dev tools too:\n"
-            "  pip install -e \".[dev]\"\n"
-        )
-        raise SystemExit(1)
-
-
-_require_runtime_deps()
-
 import pygame
 
 from .constants import (
-    HEADLESS_SHOWDOWN_MAIN_LOOP_FPS,
     MAIN_LOOP_FPS,
     WINDOW_HEIGHT,
     WINDOW_WIDTH,
 )
 from .constants import CELL_SIZE
-from .game import GameController, GameState
+from .game import GameController
 from .game_loop import render_frame, tick_logic
 from .crt_effect import apply_crt
 from .petscii_render import get_pet_font
@@ -57,7 +38,7 @@ def main() -> None:
 
     pygame.init()
     # Vsync on ``flip()`` can cap effective FPS (~display Hz) regardless of ``Clock.tick``;
-    # set ``TANK_VSYNC=0`` to disable for benchmarking headless SHOWDOWN throughput.
+    # set ``TANK_VSYNC=0`` to disable.
     _vsync_on = os.environ.get("TANK_VSYNC", "1").strip().lower() not in (
         "0",
         "false",
@@ -68,7 +49,7 @@ def main() -> None:
         (WINDOW_WIDTH, WINDOW_HEIGHT),
         vsync=1 if _vsync_on else 0,
     )
-    pygame.display.set_caption("TANK! PyGame Port")
+    pygame.display.set_caption("TANK! 2P — PyGame Port")
     clock = pygame.time.Clock()
 
     controller = GameController()
@@ -79,39 +60,13 @@ def main() -> None:
     debug_log(f"Game initialized - difficulty: {controller.difficulty}")
 
     running = True
-    headless_render_skip = 0
-    HEADLESS_RENDER_INTERVAL = 4
     while running:
-        headless_showdown_running = (
-            getattr(controller, "_showdown_headless", False)
-            and controller.state == GameState.SHOWDOWN_RUNNING
-        )
-        parallel_running = (
-            headless_showdown_running
-            and getattr(controller, "_showdown_parallel_thread", None) is not None
-        )
-        if headless_showdown_running and not parallel_running:
-            pygame.event.pump()
-        target_fps = (
-            HEADLESS_SHOWDOWN_MAIN_LOOP_FPS
-            if headless_showdown_running and not parallel_running
-            else MAIN_LOOP_FPS
-        )
-        dt = clock.tick(target_fps) / 1000.0
+        dt = clock.tick(MAIN_LOOP_FPS) / 1000.0
         events = pygame.event.get()
         running = tick_logic(controller, events, dt)
-        if headless_showdown_running and not parallel_running:
-            headless_render_skip += 1
-            if headless_render_skip >= HEADLESS_RENDER_INTERVAL:
-                headless_render_skip = 0
-                render_frame(screen, controller, status, overlay)
-                apply_crt(screen)
-                pygame.display.flip()
-        else:
-            headless_render_skip = 0
-            render_frame(screen, controller, status, overlay)
-            apply_crt(screen)
-            pygame.display.flip()
+        render_frame(screen, controller, status, overlay)
+        apply_crt(screen)
+        pygame.display.flip()
 
     pygame.quit()
     sys.exit(0)
