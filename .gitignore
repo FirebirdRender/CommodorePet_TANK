@@ -54,6 +54,7 @@ hmem.config.json
 .cursor/
 .opencode/
 opencode.json
+.sisyphus/
 .ruff_cache/
 .pytest_cache/
 .benchmarks/
