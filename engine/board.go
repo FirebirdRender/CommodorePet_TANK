@@ -1,0 +1,66 @@
+package engine
+
+import "math/rand"
+
+type Board struct {
+	Width      int
+	Height     int
+	Difficulty int
+	Grid       [][]CellType
+}
+
+func NewBoard(width, height, difficulty int, rng *rand.Rand) *Board {
+	grid := make([][]CellType, height)
+	for y := range grid {
+		grid[y] = make([]CellType, width)
+		for x := range grid[y] {
+			grid[y][x] = CellEmpty
+		}
+	}
+	b := &Board{Width: width, Height: height, Difficulty: difficulty, Grid: grid}
+	b.initBorders()
+	b.generateTerrain(rng)
+	return b
+}
+
+func (b *Board) initBorders() {
+	for x := 0; x < b.Width; x++ {
+		b.Grid[0][x] = CellWall
+		b.Grid[b.Height-1][x] = CellWall
+	}
+	for y := 0; y < b.Height; y++ {
+		b.Grid[y][0] = CellWall
+		b.Grid[y][b.Width-1] = CellWall
+	}
+}
+
+func (b *Board) generateTerrain(rng *rand.Rand) {
+	density := 0.04 + (float64(b.Difficulty)/9.0)*0.21
+	for y := 1; y <= b.Height-2; y++ {
+		for x := 1; x <= b.Width-2; x++ {
+			if y == 12 && ((x >= 1 && x <= 5) || (x >= b.Width-6 && x <= b.Width-2)) {
+				continue
+			}
+			if rng.Float64() < density {
+				b.Grid[y][x] = CellWall
+			}
+		}
+	}
+}
+
+func (b *Board) InBounds(x, y int) bool {
+	return x >= 0 && x < b.Width && y >= 0 && y < b.Height
+}
+
+func (b *Board) GetCell(x, y int) CellType {
+	return b.Grid[y][x]
+}
+
+func (b *Board) SetCellType(x, y int, ct CellType) {
+	b.Grid[y][x] = ct
+}
+
+func (b *Board) IsPassable(x, y int) bool {
+	ct := b.Grid[y][x]
+	return ct == CellEmpty || ct == CellShot || ct == CellMine
+}
