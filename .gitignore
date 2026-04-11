@@ -53,6 +53,7 @@ hmem.config.json
 # Cursor / local agent state (not portable)
 .cursor/
 .opencode/
+opencode.json
 .ruff_cache/
 .pytest_cache/
 .benchmarks/
@@ -64,6 +65,7 @@ scripts/
 tasks/
 tests/
 PROJECT.2P/
+PROJECT.NET/
 
 # Game / dev runtime output (see tank_game DEBUG_LOG_FILE, showdown summaries)
 tank_debug.log
