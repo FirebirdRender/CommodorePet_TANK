@@ -1,5 +1,22 @@
 ## Changelog
 
+### 2.0.0-alpha.1 - 2026-04-10 — Wave 1: Go Game Engine
+
+Pure Go port of the Python game engine (`engine/` package). All game mechanics faithfully ported from the Python 2P codebase with 158 tests, zero float positions (pure integer grid).
+
+- **10 Go source files** in `engine/`: `doc.go`, `constants.go`, `board.go`, `player.go`, `projectile.go`, `game.go`, `shotshot.go`, `mine_explosion.go`, `match_runner.go`, plus test files.
+- **Constants & enums:** `CellType` (1-10), `Direction` (1-8), `GameState`, `Action` (0-10), timing constants — all matching Python `IntEnum` values.
+- **Board:** 40×21 grid, difficulty-scaled terrain generation (4%–25% wall density), deterministic seeded RNG.
+- **Tank:** 8-direction movement, barrel tracking, lives/ammo/mines resource management, spawn position memory.
+- **Projectile:** Shot movement with max range (75% of dimension), mine placement with visibility timer, detonation delay.
+- **Collision system:** All 8 collision types ported — shot→wall, shot→tank body, shot→barrel, shot→wreckage, shot→mine, shot→shot (head-on swap detection), mine explosion chains, tank→mine.
+- **Barrel swing:** Direction change without movement, old barrel cell cleanup.
+- **Respawn:** Both-tank respawn after kill, spawn position scanning (up/down), resource reset per difficulty.
+- **GameController:** Full update loop orchestrating movement, shots, mines, explosions, barrel hits, win detection, round/game state transitions.
+- **Headless match runner:** `RunMatch()` with `InputProvider` interface, `RandomInputProvider` for simulation, `ScriptedInputProvider` for deterministic tests.
+- **158 tests** across 9 test files, all passing. Race-free (`go test -race`), vet clean.
+- **12 golden integration tests** covering all collision types with deterministic scripted scenarios.
+
 ### 1.0.0 - 2026-04-10 — TANK! 2P Fork
 
 Two-player-only fork of the TANK! PyGame port. Stripped all AI, SHOWDOWN tournament, headless runner, Demo mode, and 1P mode.
@@ -316,4 +333,3 @@ Headless SHOWDOWN throughput overhaul. cProfile revealed AI (A* pathfinding + pe
 - Initial Python 3 / PyGame TANK! project scaffolding.
 - Added mechanics reference document for the TANK! port.
 - Defined packaging metadata and development dependencies.
-

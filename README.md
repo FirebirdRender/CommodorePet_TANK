@@ -1,6 +1,6 @@
 ## TANK! 2P — Two-Player PyGame Port
 
-**Version 1.0.0** — Python 3 / PyGame recreation of the classic two-player **TANK!** game from *Cursor Magazine* #26 (Commodore PET 4016). **Two-player only** — no AI, no tournament mode. Authentic **PETSCII retro** rendering with bundled PET font, monochrome phosphor-green palette, and character-cell visuals matching the original Commodore PET look.
+**Version 2.0.0-alpha.1** — Python 3 / PyGame recreation of the classic two-player **TANK!** game from *Cursor Magazine* #26 (Commodore PET 4016). **Two-player only** — no AI, no tournament mode. Authentic **PETSCII retro** rendering with bundled PET font, monochrome phosphor-green palette, and character-cell visuals matching the original Commodore PET look.
 
 ### Features
 
@@ -61,3 +61,40 @@ mypy tank_game
 ### License / assets
 
 See `pyproject.toml` for package metadata. Original *TANK!* concept credits Commodore PET / *Cursor* era; this repository is the Python port's source tree.
+
+---
+
+## NetTank — Network Play (In Development)
+
+**Branch: `NetTank`** — Multiplayer network play built on a pure Go game engine.
+
+### Go Engine (`engine/`)
+
+Wave 1 ported the entire Python game engine to Go as a pure logic package (no rendering, no I/O). The engine is the authoritative game state for networked play.
+
+| File | Contents |
+|------|----------|
+| `engine/constants.go` | CellType, Direction, GameState, Action enums; timing constants |
+| `engine/board.go` | Board struct, terrain generation, cell operations |
+| `engine/player.go` | Tank struct, movement, barrel tracking, resources |
+| `engine/projectile.go` | Shot and Mine structs, movement, detonation |
+| `engine/game.go` | GameController — full update loop, all collision handling |
+| `engine/shotshot.go` | Shot-shot collision detection (including head-on swap) |
+| `engine/mine_explosion.go` | Mine explosion and chain reaction logic |
+| `engine/match_runner.go` | Headless match runner with InputProvider interface |
+
+**158 tests** across 9 test files. Run with:
+
+```bash
+go test ./engine/... -count=1
+```
+
+### Planned Waves
+
+| Wave | Scope | Status |
+|------|-------|--------|
+| Wave 1 | Go game engine | ✅ Complete |
+| Wave 2 | WebSocket protocol + Go server | Planned |
+| Wave 3 | WASM client + Ebitengine rendering | Planned |
+| Wave 4 | Latency compensation | Planned |
+| Wave 5 | Lobby + matchmaking | Planned |
