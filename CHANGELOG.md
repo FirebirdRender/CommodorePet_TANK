@@ -1,5 +1,19 @@
 ## Changelog
 
+### 2.0.0-alpha.2 - 2026-04-13 — Wave 2: WebSocket Protocol & Authoritative Server
+
+Go WebSocket server for networked 2P play. Full protocol, room lifecycle, 60Hz authoritative game loop, and E2E integration tests.
+
+- **Protocol (`server/protocol.go`):** JSON envelope with type discriminator, 12 message types (5 client→server, 7 server→client), wire entity state types (TankState, ShotState, MineState, ExplosionState), engine→wire converters, KeyToAction mapper, error code constants. Round-trip JSON tests.
+- **Room (`server/room.go`):** Room struct with mutex-protected state machine (Waiting→Ready→Playing→GameOver→Closed), player slot management (ID 1/2), ready tracking, disconnect=forfeit semantics.
+- **Hub (`server/hub.go`):** Hub with crypto/rand 4-letter room code generation, concurrent room lookup/creation, stale room cleanup (Closed rooms and abandoned Waiting rooms).
+- **Input (`server/input.go`):** InputTracker with KEYDOWN/KEYUP edge detection, repeat suppression, FIFO pending queue, held-key fallback (directions only — fire/mine are edge-triggered), ProcessInputMsg wire→engine bridge.
+- **MatchController (`server/match.go`):** 60Hz game loop (fixed dt=1/60s), goroutine-safe Start/Stop (sync.Once), round-over detection via engine.Winner, game-over detection via tank.Lives==0, inter-round pause (2s), engine state→TickMsg snapshot broadcast, MatchEvent callback interface for decoupled notification.
+- **WebSocket handler (`server/ws_handler.go`):** HTTP→WS upgrade, ClientConn with read/write pumps, message dispatch (create_room, join_room, ready, input, play_again), RoomBridge implementing MatchEvent for dual-client broadcast, ConnRegistry for per-room player→connection mapping, idempotent disconnect cleanup.
+- **Server binary (`cmd/server/main.go`):** Graceful shutdown (SIGINT/SIGTERM), periodic stale room cleanup (60s interval, 30min max age), health endpoint, configurable listen address.
+- **E2E tests (`server/e2e_test.go`):** Full lifecycle (create→join→ready→ticks), forced disconnect (room teardown), input affects state (position change verification), multiple rooms (isolation), room cleanup after disconnect.
+- **58 server tests** total (protocol: 8, room: 9, hub: 7, input: 8, match: 9, ws_handler: 8, e2e: 5, room bridge: 2). All passing with `-race` flag.
+
 ### 2.0.0-alpha.1 - 2026-04-10 — Wave 1: Go Game Engine
 
 Pure Go port of the Python game engine (`engine/` package). All game mechanics faithfully ported from the Python 2P codebase with 158 tests, zero float positions (pure integer grid).

@@ -1,6 +1,6 @@
 ## TANK! 2P — Two-Player PyGame Port
 
-**Version 2.0.0-alpha.1** — Python 3 / PyGame recreation of the classic two-player **TANK!** game from *Cursor Magazine* #26 (Commodore PET 4016). **Two-player only** — no AI, no tournament mode. Authentic **PETSCII retro** rendering with bundled PET font, monochrome phosphor-green palette, and character-cell visuals matching the original Commodore PET look.
+**Version 2.0.0-alpha.2** — Python 3 / PyGame recreation of the classic two-player **TANK!** game from *Cursor Magazine* #26 (Commodore PET 4016). **Two-player only** — no AI, no tournament mode. Authentic **PETSCII retro** rendering with bundled PET font, monochrome phosphor-green palette, and character-cell visuals matching the original Commodore PET look.
 
 ### Features
 
@@ -89,12 +89,38 @@ Wave 1 ported the entire Python game engine to Go as a pure logic package (no re
 go test ./engine/... -count=1
 ```
 
+### Go Server (`server/`)
+
+Wave 2 adds an authoritative WebSocket server for networked 2P play. Uses `coder/websocket` v1.8.12 for both server and future WASM client.
+
+| File | Contents |
+|------|----------|
+| `server/protocol.go` | JSON message types (Envelope, InputMsg, TickMsg, etc.), engine→wire converters, KeyToAction |
+| `server/room.go` | Room struct with player management, lifecycle states |
+| `server/hub.go` | Hub with crypto/rand room code generation, stale room cleanup |
+| `server/input.go` | InputTracker — KEYDOWN/KEYUP edge→Action translation, repeat suppression |
+| `server/match.go` | MatchController — 60Hz game loop wrapping GameController, round/game lifecycle |
+| `server/ws_handler.go` | WebSocket handler, ClientConn, RoomBridge, ConnRegistry |
+| `cmd/server/main.go` | Server binary with graceful shutdown and periodic cleanup |
+
+**58 tests** including 5 E2E integration tests. Run with:
+
+```bash
+go test -race ./server/... -count=1
+```
+
+Start the server:
+
+```bash
+go run ./cmd/server/ -addr :8080
+```
+
 ### Planned Waves
 
 | Wave | Scope | Status |
 |------|-------|--------|
 | Wave 1 | Go game engine | ✅ Complete |
-| Wave 2 | WebSocket protocol + Go server | Planned |
+| Wave 2 | WebSocket protocol + Go server | ✅ Complete |
 | Wave 3 | WASM client + Ebitengine rendering | Planned |
 | Wave 4 | Latency compensation | Planned |
 | Wave 5 | Lobby + matchmaking | Planned |
