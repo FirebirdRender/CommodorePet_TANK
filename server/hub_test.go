@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-var roomCodeRe = regexp.MustCompile(`^[A-Z]{4}$`)
+var roomCodeRe = regexp.MustCompile(`^[A-Z2-9]{4}$`)
 
 func TestNewHubStartsEmpty(t *testing.T) {
 	h := NewHub()
@@ -23,7 +23,7 @@ func TestCreateRoomReturnsValidRoom(t *testing.T) {
 		t.Fatal("expected room, got nil")
 	}
 	if !roomCodeRe.MatchString(r.Code) {
-		t.Fatalf("expected 4-letter uppercase code, got %q", r.Code)
+		t.Fatalf("expected 4-letter uppercase/2-9 code, got %q", r.Code)
 	}
 	if r.Difficulty != 7 {
 		t.Fatalf("expected difficulty 7, got %d", r.Difficulty)
@@ -196,7 +196,23 @@ func TestRoomCodeFormatValidation(t *testing.T) {
 	for range 100 {
 		code := h.generateCode()
 		if !roomCodeRe.MatchString(code) {
-			t.Fatalf("expected 4-char uppercase code, got %q", code)
+			t.Fatalf("expected 4-char uppercase/2-9 code, got %q", code)
 		}
+	}
+}
+
+func TestHubShutdownNotifiesClients(t *testing.T) {
+	hub := NewHub()
+	registry := NewConnRegistry()
+
+	room := hub.CreateRoom(5)
+	if room == nil {
+		t.Fatal("failed to create room")
+	}
+
+	hub.Shutdown(1*time.Second, registry)
+
+	if hub.RoomCount() != 0 {
+		t.Errorf("expected 0 rooms after shutdown, got %d", hub.RoomCount())
 	}
 }

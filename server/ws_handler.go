@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -65,6 +66,11 @@ func (h *WSHandler) ensureRegistry() {
 			h.registry = NewConnRegistry()
 		}
 	})
+}
+
+func (h *WSHandler) Registry() *ConnRegistry {
+	h.ensureRegistry()
+	return h.registry
 }
 
 func (h *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -137,10 +143,70 @@ func (c *ClientConn) handleMessage(msgType string, payload []byte) {
 	case MsgTypeInput:
 		c.handleInput(payload)
 	case MsgTypePlayAgain:
-		log.Printf("play_again ignored for room=%s player=%d", c.roomCode(), c.getPlayerID())
+		c.handlePlayAgain(payload)
 	default:
 		c.sendError(ErrCodeInvalidInput, "unknown message type")
 	}
+}
+
+func (c *ClientConn) handlePlayAgain(payload []byte) {
+	room := c.getRoom()
+	if room == nil {
+		c.sendError(ErrCodeNotReady, "not in room")
+		return
+	}
+
+	// Only allow play_again when room is in RoomGameOver state (or playing but about to end)
+	state := room.GetState()
+	if state != RoomGameOver && state != RoomPlaying {
+		c.sendError(ErrCodeNotReady, fmt.Sprintf("cannot play again in state %d", state))
+		return
+	}
+
+	playerID := c.getPlayerID()
+
+	// Mark this player as wanting rematch
+
+	room.SetRematch(playerID)
+
+	// Send acknowledgement with opponent name
+	oppName := c.lookupOpponentName(room, playerID)
+	c.sendOrLog(MsgTypePlayAgainAck, PlayAgainAckMsg{WaitingFor: oppName})
+
+	// Check if both want rematch
+	if !room.BothWantRematch() {
+		return
+	}
+
+	// Both want rematch — reset room state and start new match
+	room.ResetForRematch()
+
+	// Get both connections
+	conns := c.handler.registry.GetClients(room.Code)
+	if conns[0] == nil || conns[1] == nil {
+		c.sendError(ErrCodeServerError, "missing players for rematch")
+		return
+	}
+
+	// Notify both players that rematch is starting
+	conns[0].sendOrLog(MsgTypeRematch, RematchMsg{Difficulty: room.Difficulty})
+	conns[1].sendOrLog(MsgTypeRematch, RematchMsg{Difficulty: room.Difficulty})
+
+	// Remove the old match controller
+	c.handler.registry.RemoveMatch(room.Code)
+
+	// Create new match controller (same difficulty, new seed)
+	bridge := &RoomBridge{clients: conns}
+	mc := NewMatchController(room.Difficulty, time.Now().UnixNano(), bridge)
+	c.handler.registry.SetMatchIfEmpty(room.Code, mc)
+
+	room.SetState(RoomPlaying)
+	conns[0].setMatch(mc)
+	conns[1].setMatch(mc)
+
+	conns[0].sendOrLog(MsgTypeGameStart, mc.GameStartState(1))
+	conns[1].sendOrLog(MsgTypeGameStart, mc.GameStartState(2))
+	mc.Start()
 }
 
 func (c *ClientConn) handleCreateRoom(payload []byte) {
@@ -153,6 +219,24 @@ func (c *ClientConn) handleCreateRoom(payload []byte) {
 	if err := json.Unmarshal(payload, &msg); err != nil {
 		c.sendError(ErrCodeInvalidInput, err.Error())
 		return
+	}
+
+	// Validate difficulty (1-10)
+	if msg.Difficulty < 1 || msg.Difficulty > 10 {
+		c.sendError(ErrCodeInvalidInput, "difficulty must be 1-10")
+		return
+	}
+
+	// Validate player name (1-16 chars, printable ASCII)
+	if len(msg.PlayerName) == 0 || len(msg.PlayerName) > 16 {
+		c.sendError(ErrCodeInvalidInput, "player name must be 1-16 characters")
+		return
+	}
+	for _, r := range msg.PlayerName {
+		if r < 32 || r > 126 {
+			c.sendError(ErrCodeInvalidInput, "player name must contain only printable ASCII")
+			return
+		}
 	}
 
 	room := c.hub.CreateRoom(msg.Difficulty)
@@ -175,7 +259,7 @@ func (c *ClientConn) handleCreateRoom(payload []byte) {
 		return
 	}
 
-	_ = c.sendMsg(MsgTypeJoined, JoinedMsg{RoomCode: room.Code, PlayerID: playerID})
+	c.sendOrLog(MsgTypeJoined, JoinedMsg{RoomCode: room.Code, PlayerID: playerID})
 }
 
 func (c *ClientConn) handleJoinRoom(payload []byte) {
@@ -188,6 +272,18 @@ func (c *ClientConn) handleJoinRoom(payload []byte) {
 	if err := json.Unmarshal(payload, &msg); err != nil {
 		c.sendError(ErrCodeInvalidInput, err.Error())
 		return
+	}
+
+	// Validate room code (4 chars, A-Z2-9)
+	if len(msg.RoomCode) != 4 {
+		c.sendError(ErrCodeInvalidInput, "room code must be 4 characters")
+		return
+	}
+	for _, r := range msg.RoomCode {
+		if !((r >= 'A' && r <= 'Z') || (r >= '2' && r <= '9')) {
+			c.sendError(ErrCodeInvalidInput, "room code must contain only A-Z2-9")
+			return
+		}
 	}
 
 	room := c.hub.GetRoom(msg.RoomCode)
@@ -206,11 +302,11 @@ func (c *ClientConn) handleJoinRoom(payload []byte) {
 	c.handler.registry.SetConn(room.Code, playerID, c)
 
 	opponentName := c.lookupOpponentName(room, playerID)
-	_ = c.sendMsg(MsgTypeJoined, JoinedMsg{RoomCode: room.Code, PlayerID: playerID, OpponentName: opponentName})
+	c.sendOrLog(MsgTypeJoined, JoinedMsg{RoomCode: room.Code, PlayerID: playerID, OpponentName: opponentName})
 
 	otherConn := c.handler.registry.GetConn(room.Code, otherPlayerID(playerID))
 	if otherConn != nil {
-		_ = otherConn.sendMsg(MsgTypeJoined, JoinedMsg{RoomCode: room.Code, PlayerID: otherPlayerID(playerID), OpponentName: msg.PlayerName})
+		otherConn.sendOrLog(MsgTypeJoined, JoinedMsg{RoomCode: room.Code, PlayerID: otherPlayerID(playerID), OpponentName: msg.PlayerName})
 	}
 }
 
@@ -262,8 +358,8 @@ func (c *ClientConn) handleReady(payload []byte) {
 	conns[0].setMatch(mc)
 	conns[1].setMatch(mc)
 
-	_ = conns[0].sendMsg(MsgTypeGameStart, mc.GameStartState(1))
-	_ = conns[1].sendMsg(MsgTypeGameStart, mc.GameStartState(2))
+	conns[0].sendOrLog(MsgTypeGameStart, mc.GameStartState(1))
+	conns[1].sendOrLog(MsgTypeGameStart, mc.GameStartState(2))
 	mc.Start()
 }
 
@@ -277,6 +373,11 @@ func (c *ClientConn) handleInput(payload []byte) {
 	var msg InputMsg
 	if err := json.Unmarshal(payload, &msg); err != nil {
 		c.sendError(ErrCodeInvalidInput, err.Error())
+		return
+	}
+
+	if msg.Action != "down" && msg.Action != "up" {
+		c.sendError(ErrCodeInvalidInput, fmt.Sprintf("invalid action %q", msg.Action))
 		return
 	}
 
@@ -313,14 +414,26 @@ func (c *ClientConn) sendMsg(msgType string, payload any) error {
 	return nil
 }
 
+func (c *ClientConn) sendOrLog(msgType string, payload any) {
+	if err := c.sendMsg(msgType, payload); err != nil {
+		log.Printf("[room=%s player=%d] sendMsg %s failed: %v", c.roomCode(), c.getPlayerID(), msgType, err)
+	}
+}
+
 func (c *ClientConn) sendError(code string, message string) {
-	_ = c.sendMsg(MsgTypeError, ErrorMsg{Code: code, Message: message})
+	c.sendOrLog(MsgTypeError, ErrorMsg{Code: code, Message: message})
 }
 
 func (c *ClientConn) cleanupAndClose() {
 	room := c.getRoom()
 	if room != nil {
 		playerID := c.getPlayerID()
+		oppID := otherPlayerID(playerID)
+		oppConn := c.handler.registry.GetConn(room.Code, oppID)
+		if oppConn != nil {
+			oppConn.sendOrLog(MsgTypeOpponentLeft, OpponentLeftMsg{Reason: "disconnect"})
+		}
+
 		empty := room.RemovePlayer(playerID)
 
 		mc := c.getMatch()
@@ -344,7 +457,9 @@ func (c *ClientConn) cleanupAndClose() {
 func (c *ClientConn) close() {
 	c.closeOnce.Do(func() {
 		close(c.done)
-		_ = c.conn.Close(websocket.StatusNormalClosure, "")
+		if err := c.conn.Close(websocket.StatusNormalClosure, ""); err != nil {
+			log.Printf("[room=%s player=%d] conn.Close failed: %v", c.roomCode(), c.getPlayerID(), err)
+		}
 	})
 }
 
@@ -404,6 +519,18 @@ func (c *ClientConn) lookupOpponentName(room *Room, playerID int) string {
 
 func (rb *RoomBridge) OnTick(_ uint64, state *TickMsg) {
 	data, err := WrapMessage(MsgTypeTick, state)
+	if err != nil {
+		return
+	}
+	for _, c := range rb.clients {
+		if c != nil {
+			c.send(data)
+		}
+	}
+}
+
+func (rb *RoomBridge) OnTickDelta(_ uint64, state *TickDeltaMsg) {
+	data, err := WrapMessage(MsgTypeTickDelta, state)
 	if err != nil {
 		return
 	}
@@ -530,6 +657,21 @@ func (cr *ConnRegistry) RemoveRoom(roomCode string) {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
 	delete(cr.rooms, roomCode)
+}
+
+func (cr *ConnRegistry) RemoveAllRooms() {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+	cr.rooms = make(map[string]*RoomConnections)
+}
+
+func (cr *ConnRegistry) RemoveMatch(roomCode string) {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+	rc := cr.rooms[roomCode]
+	if rc != nil {
+		rc.mc = nil
+	}
 }
 
 func otherPlayerID(playerID int) int {

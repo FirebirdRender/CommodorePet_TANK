@@ -1,32 +1,32 @@
-package server
+package client
 
 import (
 	"encoding/json"
 	"errors"
-
-	"github.com/FirebirdRender/CommodorePet_TANK/engine"
 )
 
+// Message type constants (match server exactly)
 const (
-	MsgTypeInput        = "input"
-	MsgTypeCreateRoom   = "create_room"
-	MsgTypeJoinRoom     = "join_room"
-	MsgTypeReady        = "ready"
-	MsgTypePlayAgain    = "play_again"
+	MsgTypeInput      = "input"
+	MsgTypeCreateRoom = "create_room"
+	MsgTypeJoinRoom   = "join_room"
+	MsgTypeReady      = "ready"
+	MsgTypePlayAgain  = "play_again"
+
+	MsgTypeRoomCreated  = "room_created"
+	MsgTypeJoined       = "joined"
+	MsgTypeGameStart    = "game_start"
+	MsgTypeTick         = "tick"
+	MsgTypeTickDelta    = "tick_delta"
+	MsgTypeRoundOver    = "round_over"
+	MsgTypeGameOver     = "game_over"
+	MsgTypeError        = "error"
 	MsgTypePlayAgainAck = "play_again_ack"
 	MsgTypeRematch      = "rematch"
 	MsgTypeOpponentLeft = "opponent_left"
-
-	MsgTypeRoomCreated = "room_created"
-	MsgTypeJoined      = "joined"
-	MsgTypeGameStart   = "game_start"
-	MsgTypeTick        = "tick"
-	MsgTypeTickDelta   = "tick_delta"
-	MsgTypeRoundOver   = "round_over"
-	MsgTypeGameOver    = "game_over"
-	MsgTypeError       = "error"
 )
 
+// Error code constants
 const (
 	ErrCodeRoomFull      = "room_full"
 	ErrCodeRoomNotFound  = "room_not_found"
@@ -36,11 +36,13 @@ const (
 	ErrCodeServerError   = "server_error"
 )
 
+// Envelope wraps all messages
 type Envelope struct {
 	Type    string          `json:"type"`
 	Payload json.RawMessage `json:"payload"`
 }
 
+// Client → Server messages
 type InputMsg struct {
 	Tick   uint64 `json:"tick"`
 	Key    string `json:"key"`
@@ -61,18 +63,7 @@ type ReadyMsg struct{}
 
 type PlayAgainMsg struct{}
 
-type PlayAgainAckMsg struct {
-	WaitingFor string `json:"waiting_for"`
-}
-
-type RematchMsg struct {
-	Difficulty int `json:"difficulty"`
-}
-
-type OpponentLeftMsg struct {
-	Reason string `json:"reason"`
-}
-
+// Server → Client messages
 type RoomCreatedMsg struct {
 	RoomCode string `json:"room_code"`
 }
@@ -116,6 +107,19 @@ type ErrorMsg struct {
 	Message string `json:"message"`
 }
 
+type PlayAgainAckMsg struct {
+	WaitingFor string `json:"waiting_for"`
+}
+
+type RematchMsg struct {
+	Difficulty int `json:"difficulty"`
+}
+
+type OpponentLeftMsg struct {
+	Reason string `json:"reason"`
+}
+
+// Entity state types
 type TankState struct {
 	PlayerID  int  `json:"player_id"`
 	X         int  `json:"x"`
@@ -149,106 +153,40 @@ type ExplosionState struct {
 	IsChainReaction bool    `json:"is_chain_reaction"`
 }
 
+type CellChange struct {
+	X    int `json:"x"`
+	Y    int `json:"y"`
+	Cell int `json:"cell"`
+}
+
+type TickDeltaMsg struct {
+	Tick         uint64           `json:"tick"`
+	ChangedCells []CellChange     `json:"changed_cells"`
+	Tanks        [2]TankState     `json:"tanks"`
+	Shots        []ShotState      `json:"shots"`
+	Mines        []MineState      `json:"mines"`
+	Explosions   []ExplosionState `json:"explosions"`
+}
+
+var errInvalidMessage = errors.New("missing or empty message type")
+
+// WrapMessage serializes a message type + payload into an Envelope JSON bytes
 func WrapMessage(msgType string, payload any) ([]byte, error) {
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
-
-	env := Envelope{
-		Type:    msgType,
-		Payload: payloadBytes,
-	}
-
-	return json.Marshal(env)
+	return json.Marshal(Envelope{Type: msgType, Payload: payloadBytes})
 }
 
+// UnwrapMessage deserializes raw JSON bytes into (type, raw payload bytes)
 func UnwrapMessage(data []byte) (msgType string, payload []byte, err error) {
 	var env Envelope
 	if err := json.Unmarshal(data, &env); err != nil {
 		return "", nil, err
 	}
 	if env.Type == "" {
-		return "", nil, errors.New("missing or empty message type")
+		return "", nil, errInvalidMessage
 	}
 	return env.Type, env.Payload, nil
-}
-
-func TankStateFromEngine(t *engine.Tank) TankState {
-	return TankState{
-		PlayerID:  t.PlayerID,
-		X:         t.X,
-		Y:         t.Y,
-		Dir:       int(t.Dir),
-		Lives:     t.Lives,
-		ShotsLeft: t.ShotsLeft,
-		MinesLeft: t.MinesLeft,
-		Active:    t.Active,
-	}
-}
-
-func ShotStateFromEngine(s *engine.Shot) ShotState {
-	return ShotState{
-		X:       s.X,
-		Y:       s.Y,
-		Dir:     int(s.Dir),
-		OwnerID: s.OwnerID,
-		Active:  s.Active,
-	}
-}
-
-func MineStateFromEngine(m *engine.Mine, simTime float64) MineState {
-	return MineState{
-		X:       m.X,
-		Y:       m.Y,
-		OwnerID: m.OwnerID,
-		Visible: simTime-m.PlacedTime < engine.MineVisibleDuration,
-	}
-}
-
-func ExplosionStateFromEngine(e *engine.Explosion) ExplosionState {
-	return ExplosionState{
-		X:               e.X,
-		Y:               e.Y,
-		Duration:        e.Duration,
-		IsChainReaction: e.IsChainReaction,
-	}
-}
-
-func GridFromEngine(b *engine.Board) [][]int {
-	grid := make([][]int, len(b.Grid))
-	for y := range b.Grid {
-		grid[y] = make([]int, len(b.Grid[y]))
-		for x := range b.Grid[y] {
-			grid[y][x] = int(b.Grid[y][x])
-		}
-	}
-	return grid
-}
-
-func KeyToAction(key string) (engine.Action, bool) {
-	switch key {
-	case "up":
-		return engine.ActionUp, true
-	case "down":
-		return engine.ActionDown, true
-	case "left":
-		return engine.ActionLeft, true
-	case "right":
-		return engine.ActionRight, true
-	case "up_left":
-		return engine.ActionUpLeft, true
-	case "up_right":
-		return engine.ActionUpRight, true
-	case "down_left":
-		return engine.ActionDownLeft, true
-	case "down_right":
-		return engine.ActionDownRight, true
-	case "fire":
-		return engine.ActionFire, true
-	case "mine":
-		return engine.ActionPlaceMine, true
-	default:
-		return engine.ActionNone, false
-	}
 }

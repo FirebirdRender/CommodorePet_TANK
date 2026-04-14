@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="TANK! - Networked multiplayer tank battle game">
+    <title>TANK!</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+        }
+        #game {
+            display: block;
+            margin: auto;
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            right: 0;
+        }
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #33ff33;
+            font-family: monospace;
+            font-size: 18px;
+            text-align: center;
+            z-index: 10;
+        }
+        #error {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #f00;
+            font-family: monospace;
+            font-size: 14px;
+            padding: 20px;
+            white-space: pre-wrap;
+            text-align: center;
+            z-index: 20;
+        }
+        #log {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            max-height: 200px;
+            overflow-y: auto;
+            color: #aaa;
+            font-family: monospace;
+            font-size: 11px;
+            padding: 4px 8px;
+            background: rgba(0,0,0,0.8);
+            z-index: 30;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="game" width="800" height="460"></canvas>
+    <div id="loading">LOADING...</div>
+    <div id="error"></div>
+    <div id="log"></div>
+    <script src="wasm_exec.js"></script>
+    <script>
+    (function() {
+        var canvas = document.getElementById('game');
+        var loading = document.getElementById('loading');
+        var errorDiv = document.getElementById('error');
+        var logDiv = document.getElementById('log');
+
+        function log(msg) {
+            console.log('[TANK] ' + msg);
+            if (logDiv) {
+                logDiv.style.display = 'block';
+                logDiv.appendChild(document.createTextNode(msg + '\n'));
+                logDiv.scrollTop = logDiv.scrollHeight;
+            }
+        }
+
+        var urlParams = new URLSearchParams(window.location.search);
+        window.playerName = urlParams.get('name') || 'Player';
+
+        function showError(msg) {
+            log('ERROR: ' + msg);
+            if (loading) loading.style.display = 'none';
+            if (errorDiv) {
+                errorDiv.style.display = 'block';
+                errorDiv.textContent = 'Error: ' + msg;
+            }
+        }
+
+        if (!WebAssembly.instantiateStreaming) {
+            WebAssembly.instantiateStreaming = function(promise, importObj) {
+                return promise.then(function(response) {
+                    return response.arrayBuffer();
+                }).then(function(buffer) {
+                    return WebAssembly.instantiate(buffer, importObj);
+                });
+            };
+        }
+
+        async function load() {
+            try {
+                log('Initializing Go WASM runtime...');
+                if (typeof Go === 'undefined') {
+                    showError('Go is not defined — wasm_exec.js failed to load');
+                    return;
+                }
+                var go = new Go();
+                log('Fetching game.wasm...');
+                var fetchResponse = await fetch('game.wasm');
+                log('Fetch status: ' + fetchResponse.status + ' ' + fetchResponse.statusText);
+                if (!fetchResponse.ok) {
+                    showError('Failed to fetch game.wasm: ' + fetchResponse.status);
+                    return;
+                }
+                log('Compiling WebAssembly...');
+                var result = await WebAssembly.instantiateStreaming(fetchResponse, go.importObject);
+                log('WASM compiled. Running Go program...');
+                go.run(result.instance);
+                log('Go program started. Hiding loading screen.');
+                if (loading) loading.style.display = 'none';
+                canvas.focus();
+            } catch (err) {
+                showError(err && err.message ? err.message : String(err));
+            }
+        }
+
+        log('Page loaded. Starting WASM bootstrap...');
+        load();
+    })();
+    </script>
+</body>
+</html>

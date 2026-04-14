@@ -76,3 +76,20 @@ tank_showdown_timeouts.log
 # Profiling / tracing dumps (viztracer, cProfile, etc.)
 *.prof
 *.viztrace
+
+# Go build artifacts
+bin/
+client_bin
+server_bin
+lagproxy
+client.test
+coverage.out
+cmd/server/server
+
+# WASM build output (rebuilt from source)
+web/game.wasm
+
+# E2E test dependencies
+test/e2e/node_modules/
+test/e2e/playwright-report/
+test/e2e/test-results/

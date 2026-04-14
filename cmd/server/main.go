@@ -16,6 +16,9 @@ import (
 
 func main() {
 	addr := flag.String("addr", ":8080", "listen address")
+	dir := flag.String("dir", "web", "static files directory")
+	cors := flag.String("cors", "*", "CORS allowed origin")
+	maxRoomAge := flag.Duration("max-room-age", 30*time.Minute, "stale room cleanup interval")
 	flag.Parse()
 
 	hub := server.NewHub()
@@ -28,11 +31,16 @@ func main() {
 		fmt.Fprintln(w, "ok")
 	})
 
+	fileHandler := server.WASMNoCacheMiddleware(http.FileServer(http.Dir(*dir)))
+	mux.Handle("/", fileHandler)
+
+	wrappedMux := server.CORSMiddleware(*cors, mux)
+
 	srv := &http.Server{
 		Addr:         *addr,
-		Handler:      mux,
+		Handler:      wrappedMux,
 		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
+		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
 
@@ -40,7 +48,7 @@ func main() {
 		ticker := time.NewTicker(60 * time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
-			hub.CleanupStaleRooms(30 * time.Minute)
+			hub.CleanupStaleRooms(*maxRoomAge)
 		}
 	}()
 
@@ -49,9 +57,16 @@ func main() {
 		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 		<-sigCh
 		log.Println("shutting down...")
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+
+		// Notify players and drain matches (30s)
+		hub.Shutdown(30*time.Second, handler.Registry())
+
+		// Stop HTTP server (15s)
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		_ = srv.Shutdown(ctx)
+		if err := srv.Shutdown(ctx); err != nil {
+			log.Printf("HTTP shutdown error: %v", err)
+		}
 	}()
 
 	log.Printf("TANK! server listening on %s", *addr)

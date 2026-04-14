@@ -20,6 +20,7 @@ const (
 
 type MatchEvent interface {
 	OnTick(tick uint64, state *TickMsg)
+	OnTickDelta(tick uint64, state *TickDeltaMsg)
 	OnRoundOver(msg *RoundOverMsg)
 	OnGameOver(msg *GameOverMsg)
 }
@@ -32,6 +33,7 @@ type MatchController struct {
 	events     MatchEvent
 	difficulty int
 	seed       int64
+	delta      *DeltaTracker
 
 	roundOverAt     uint64
 	roundPauseTicks uint64
@@ -55,6 +57,7 @@ func NewMatchController(difficulty int, seed int64, events MatchEvent) *MatchCon
 		events:          events,
 		difficulty:      difficulty,
 		seed:            seed,
+		delta:           NewDeltaTracker(),
 		roundPauseTicks: 120,
 		stopCh:          make(chan struct{}),
 	}
@@ -144,6 +147,7 @@ func (mc *MatchController) stepTick() {
 			mc.gc.InitRound()
 			mc.inputs[0].Reset()
 			mc.inputs[1].Reset()
+			mc.delta.Reset()
 			mc.state = MatchRunning
 		}
 		shouldBroadcast = true
@@ -218,10 +222,30 @@ func (mc *MatchController) stepTick() {
 func (mc *MatchController) broadcastTick() {
 	mc.mu.Lock()
 	tick := mc.tick
-	msg := mc.buildTickMsgLocked()
-	mc.mu.Unlock()
+	fullMsg := mc.buildTickMsgLocked()
 
-	mc.emitTick(tick, msg)
+	// Decide: keyframe or delta?
+	if mc.delta.prevGrid == nil || mc.delta.ShouldSendKeyframe(tick, 0) {
+		// Send full keyframe
+		mc.mu.Unlock()
+		mc.emitTick(tick, fullMsg)
+		mc.delta.UpdateState(fullMsg.Grid)
+	} else {
+		// Compute delta
+		changes := mc.delta.ComputeDelta(fullMsg.Grid)
+		mc.mu.Unlock()
+
+		deltaMsg := &TickDeltaMsg{
+			Tick:         tick,
+			ChangedCells: changes,
+			Tanks:        fullMsg.Tanks,
+			Shots:        fullMsg.Shots,
+			Mines:        fullMsg.Mines,
+			Explosions:   fullMsg.Explosions,
+		}
+		mc.emitTickDelta(tick, deltaMsg)
+		mc.delta.UpdateState(fullMsg.Grid)
+	}
 }
 
 func (mc *MatchController) buildTickMsgLocked() *TickMsg {
@@ -253,6 +277,12 @@ func (mc *MatchController) buildTickMsgLocked() *TickMsg {
 func (mc *MatchController) emitTick(tick uint64, msg *TickMsg) {
 	if mc.events != nil {
 		mc.events.OnTick(tick, msg)
+	}
+}
+
+func (mc *MatchController) emitTickDelta(tick uint64, msg *TickDeltaMsg) {
+	if mc.events != nil {
+		mc.events.OnTickDelta(tick, msg)
 	}
 }
 

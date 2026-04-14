@@ -1,5 +1,72 @@
 ## Changelog
 
+### Wave 7: Testing & E2E Infrastructure (April 14, 2026)
+
+Client
+- **JS State Bridge**: `window.getGameState()`, `window.sendInput()`, `window.sendReady()`, `window.sendPlayAgain()` — JavaScript bridge functions for external testing tools (Playwright). Only active when `?test=1` URL parameter is present.
+- **Test Mode**: `Game.testMode` field set from `?test=1` URL parameter. Enables JS bridge functions and periodic state export every 60 frames.
+- **Build Tags**: `bridge_js.go` (`//go:build js`) for WASM, `bridge_native.go` (`//go:build !js`) for native — conditional compilation for JS interop.
+- **Native Stubs**: `getJSTestMode()` returns `false` on native builds, truthy on WASM from URL params.
+- **AnimTick**: Now correctly increments every `Update()` frame (was declared but never incremented).
+
+E2E Tests
+- **Playwright Infrastructure**: `test/e2e/` directory with Playwright config, TypeScript, and 7 test scenarios:
+  - Page loads and WASM initializes
+  - Create room flow
+  - Difficulty selection
+  - Test mode bridge functions exist with correct fields
+  - Join room input accepts letters
+  - Without `?test=1`, bridge functions are absent (security check)
+
+Makefile
+- **`test`**: `go test -race ./... -count=1` (all Go tests)
+- **`test-headless`**: Subset of headless-safe Go tests (no display context required)
+- **`test-e2e`**: Builds all, then runs Playwright in Chromium
+- **`test-all`**: Runs all three test suites
+
+### Wave 6: Hardening & Production Readiness (April 15, 2026)
+
+Server
+- **Error Handling**: Replaced 13 discarded send errors with `sendOrLog()` helper for proper logging
+- **CORS Middleware**: Added configurable CORS headers for browser WASM clients (`-cors` flag, default `*`)
+- **Input Validation**: Server validates difficulty (1-10), player name (1-16 chars, printable ASCII), room codes (4 chars, A-Z2-9)
+- **Graceful Shutdown**: Server notifies clients on SIGTERM, drains running matches (30s timeout), then stops HTTP (15s)
+- **Room Codes**: Unambiguous alphabet — excludes I, L, O, 0, 1 to prevent player confusion
+- **WASM Cache-Busting**: No-cache headers for `.wasm` and `.js` files prevent stale binaries
+- **CLI Flags**: Added `-cors`, `-max-room-age`, `-write-timeout` flags to server
+
+Client
+- **Crash Resilience**: Panic recovery in message handler, unknown message type logging, nil-cancel guard
+- **Grid Dimension Guards**: `ApplyTick` and `ApplyGameStart` validate grid dimensions before applying
+- **Dimension Mismatch Logging**: Tick/delta messages with wrong grid size are logged and skipped
+
+Testing
+- **Validation Tests**: `server/validate_test.go` — difficulty, player name, room code validation
+- **Middleware Tests**: `server/middleware_test.go` — CORS and WASM no-cache headers
+- **Hub Shutdown Tests**: `server/hub_test.go` — graceful shutdown with client notification
+- **Client Tests**: `client/gamestate_test.go` — delta application, desync, explosions, bounds checking
+- **Client Network Tests**: `client/network_test.go` — message wrapping, unwrapping, close edge cases
+- **Smoke Tests**: `server/e2e_smoke_test.go` — full lifecycle, input validation, room codes, CORS, cache headers
+
+Documentation
+- **README.md**: Quick start, project structure, server flags, client URL params, controls, testing
+- **docs/DEPLOY.md**: VPS deployment, Nginx config, TLS setup, production tips
+
+### 2.0.0-alpha.3 - 2026-04-13 — Wave 3: WASM Game Client
+
+Go+WebAssembly game client using Ebitengine v2. Two WS clients can play a full match through the server in a browser.
+
+- **Protocol client (`client/protocol.go`):** JSON envelope with type discriminator, 12 message types (5 client→server, 7 server→client), wire entity state types (TankState, ShotState, MineState, ExplosionState), WrapMessage/UnwrapMessage helpers, KeyToAction mapper, error code constants. Round-trip JSON tests.
+- **Network layer (`client/network.go`):** WebSocket client using `coder/websocket` v1.8.12, read/write goroutines with buffered channels (256 msgs), non-blocking Send with drop semantics, DrainIncoming for game loop integration, 1MB read limit for game state messages, graceful Close.
+- **Game state (`client/gamestate.go`):** GamePhase state machine (Connecting→Lobby→Playing→RoundOver→GameOver→Disconnected), Apply* methods for all server messages, explosion timer management with per-frame 1/60s decrement, LobbyMode sub-states (Start→Creating/Joining→Waiting).
+- **Input handler (`client/input.go`):** Ebitengine inpututil-based KEYDOWN/KEYUP edge detection, key→protocol mapping (arrows, space=fire, M=mine), tick counter for InputMsg synchronization, enabled/disabled by game phase.
+- **Renderer (`client/renderer.go`, `client/glyph.go`):** 4-pass rendering (grid cells→tank barrels→mines→shots), direction-aware barrel glyphs (8 directions), PhosphorGreen/ChainGreen/Black palette, go:embed PetMe64.ttf font, text/v2 for HUD rendering (inverted text on green bars), lobby/connecting/game-over scene drawing.
+- **Glyph cache (`client/glyph.go`):** Pre-rendered glyph images (cell type→rune mapping), mutex-protected cache, inverted text support (green background + black glyph for tank/mine characters), barrel direction rune lookup.
+- **Game loop (`client/game.go`):** Ebitengine Game interface (Update/Draw/Layout), message dispatch by type, lobby keyboard handling (C=create, J=join, digits for room code, Enter=confirm), game-over→Enter→lobby flow, ESC=quit.
+- **Scaffold (`cmd/client/main.go`, `web/index.html`, `Makefile`):** Native dev target (`make dev`), WASM build target (`make wasm`), HTTP serve target (`make serve`), go:embed font asset pipeline.
+- **Integration tests (`client/integration_test.go`):** 5 E2E tests — connect+create room, join room, ready+game_start, input affects state, disconnect handling. All using `httptest` + real WebSocket server.
+- **Total: 2935 lines of Go, 64 client tests, 158 engine tests, 58 server tests = 280 tests all passing with `-race`.** WASM binary builds clean.
+
 ### 2.0.0-alpha.2 - 2026-04-13 — Wave 2: WebSocket Protocol & Authoritative Server
 
 Go WebSocket server for networked 2P play. Full protocol, room lifecycle, 60Hz authoritative game loop, and E2E integration tests.

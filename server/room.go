@@ -17,10 +17,11 @@ const (
 )
 
 type Player struct {
-	ID        int
-	Name      string
-	Ready     bool
-	Connected bool
+	ID           int
+	Name         string
+	Ready        bool
+	Connected    bool
+	WantsRematch bool
 }
 
 type Room struct {
@@ -98,6 +99,37 @@ func (r *Room) SetReady(playerID int) error {
 
 	p.Ready = true
 	return nil
+}
+
+func (r *Room) SetRematch(playerID int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if playerID >= 1 && playerID <= 2 && r.Players[playerID-1] != nil {
+		r.Players[playerID-1].WantsRematch = true
+	}
+}
+
+func (r *Room) BothWantRematch() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	p1 := r.Players[0]
+	p2 := r.Players[1]
+	return p1 != nil && p2 != nil && p1.Connected && p2.Connected &&
+		p1.WantsRematch && p2.WantsRematch
+}
+
+func (r *Room) ResetForRematch() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.Players[0] != nil {
+		r.Players[0].WantsRematch = false
+		r.Players[0].Ready = false
+	}
+	if r.Players[1] != nil {
+		r.Players[1].WantsRematch = false
+		r.Players[1].Ready = false
+	}
+	r.State = RoomReady
 }
 
 func (r *Room) BothReady() bool {
