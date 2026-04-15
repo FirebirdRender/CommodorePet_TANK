@@ -30,10 +30,10 @@ func TestMapKey(t *testing.T) {
 		ebitenKey ebiten.Key
 		want      string
 	}{
-		{ebiten.KeyUp, "up"},
-		{ebiten.KeyDown, "down"},
-		{ebiten.KeyLeft, "left"},
-		{ebiten.KeyRight, "right"},
+		{ebiten.KeyW, "up"},
+		{ebiten.KeyA, "left"},
+		{ebiten.KeyS, "fire"},
+		{ebiten.KeyD, "right"},
 		{ebiten.KeySpace, "fire"},
 		{ebiten.KeyM, "mine"},
 	}
@@ -196,28 +196,7 @@ func TestKeyNamesMatchServerProtocol(t *testing.T) {
 	}
 }
 
-func TestWASDKeysMapToDirections(t *testing.T) {
-	h := NewInputHandler()
-
-	tests := []struct {
-		key  ebiten.Key
-		want string
-	}{
-		{ebiten.KeyW, "up"},
-		{ebiten.KeyA, "left"},
-		{ebiten.KeyS, "down"},
-		{ebiten.KeyD, "right"},
-	}
-
-	for _, tc := range tests {
-		got := h.MapKey(tc.key)
-		if got != tc.want {
-			t.Errorf("MapKey(%v) = %q, want %q", tc.key, got, tc.want)
-		}
-	}
-}
-
-func TestPETMatrixKeysMapToDiagonals(t *testing.T) {
+func TestPETMatrixKeys(t *testing.T) {
 	h := NewInputHandler()
 
 	tests := []struct {
@@ -225,8 +204,13 @@ func TestPETMatrixKeysMapToDiagonals(t *testing.T) {
 		want string
 	}{
 		{ebiten.KeyQ, "up_left"},
+		{ebiten.KeyW, "up"},
 		{ebiten.KeyE, "up_right"},
+		{ebiten.KeyA, "left"},
+		{ebiten.KeyS, "fire"},
+		{ebiten.KeyD, "right"},
 		{ebiten.KeyZ, "down_left"},
+		{ebiten.KeyX, "down"},
 		{ebiten.KeyC, "down_right"},
 	}
 
@@ -238,7 +222,7 @@ func TestPETMatrixKeysMapToDiagonals(t *testing.T) {
 	}
 }
 
-func TestNumpadKeysMapToDirections(t *testing.T) {
+func TestNumpadKeys(t *testing.T) {
 	h := NewInputHandler()
 
 	tests := []struct {
@@ -249,11 +233,11 @@ func TestNumpadKeysMapToDirections(t *testing.T) {
 		{ebiten.KeyNumpad8, "up"},
 		{ebiten.KeyNumpad9, "up_right"},
 		{ebiten.KeyNumpad4, "left"},
+		{ebiten.KeyNumpad5, "fire"},
 		{ebiten.KeyNumpad6, "right"},
 		{ebiten.KeyNumpad1, "down_left"},
 		{ebiten.KeyNumpad2, "down"},
 		{ebiten.KeyNumpad3, "down_right"},
-		{ebiten.KeyNumpad5, "fire"},
 		{ebiten.KeyNumpad0, "mine"},
 	}
 

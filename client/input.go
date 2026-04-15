@@ -21,36 +21,25 @@ type InputHandler struct {
 }
 
 // Default key mapping matching the server's KeyToAction function.
-// Three control schemes all active simultaneously:
-//  1. Arrow keys — primary directional controls
-//  2. WASD — WASD gamers' alternative for movement
-//  3. PET matrix (QWE/ASD/ZXC) — original Commodore PET 8-way layout
-//     Q=up_left W=up E=up_right A=left D=right Z=down_left X=down C=down_right
-//     S=fire (center of the matrix)
-//
-// Numpad (789/456/123) also supported as original PET Player 2 layout.
+// Two control schemes active simultaneously:
+//  1. PET matrix (QWE/ASD/ZXC) — original Commodore PET 8-way layout
+//     Q=up_left W=up E=up_right A=left S=fire D=right
+//     Z=down_left X=down C=down_right  Space=fire(alternate)
+//  2. Numpad (789/456/123) — original PET Player 2 layout
+//     7=up_left 8=up 9=up_right 4=left 5=fire 6=right
+//     1=down_left 2=down 3=down_right 0=mine
 var defaultKeyMap = map[ebiten.Key]string{
-	// Arrow keys
-	ebiten.KeyUp:    "up",
-	ebiten.KeyDown:  "down",
-	ebiten.KeyLeft:  "left",
-	ebiten.KeyRight: "right",
-
-	// WASD
-	ebiten.KeyW: "up",
-	ebiten.KeyA: "left",
-	ebiten.KeyS: "down",
-	ebiten.KeyD: "right",
-
-	// PET matrix (8-way)
-	ebiten.KeyQ: "up_left",
-	ebiten.KeyE: "up_right",
-	ebiten.KeyZ: "down_left",
-	ebiten.KeyC: "down_right",
-
-	// PET matrix fire
+	// PET matrix (8-way movement + fire)
+	ebiten.KeyQ:     "up_left",
+	ebiten.KeyW:     "up",
+	ebiten.KeyE:     "up_right",
+	ebiten.KeyA:     "left",
+	ebiten.KeyS:     "fire",
+	ebiten.KeyD:     "right",
+	ebiten.KeyZ:     "down_left",
+	ebiten.KeyX:     "down",
+	ebiten.KeyC:     "down_right",
 	ebiten.KeySpace: "fire",
-	ebiten.KeyEnter: "fire",
 	ebiten.KeyM:     "mine",
 
 	// Numpad (original PET Player 2 layout)

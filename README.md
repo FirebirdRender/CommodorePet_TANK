@@ -48,18 +48,20 @@ make clean         # Remove build artifacts
 
 ## Controls
 
-Three control schemes are all active simultaneously — use whichever feels natural:
+Two control schemes active simultaneously — use whichever feels natural:
 
-**Arrow keys**: Arrow keys move, Space/Enter fire, M mine
-**WASD**: W/A/S/D move, Space/Enter fire, M mine
 **PET matrix** (original Commodore PET layout):
-- QWE/ASD/ZXC for 8-directional movement (Q=up-left, E=up-right, Z=down-left, C=down-right)
-- S or Space/Enter to fire
+- QWE/ASD/ZXC for 8-directional movement
+- S or Space to fire
 - M to deploy mine
+
 **Numpad** (original PET Player 2 layout):
 - 789/456/123 for 8-directional movement
-- 5 to fire, 0 for mine
-- ESC — back/disconnect (in game: return to lobby; in lobby: exit)
+- 5 or Space to fire
+- 0 for mine
+
+**Lobby keys**: C=create room, J=join room, 1-0=difficulty, Enter=confirm
+**In-game**: ESC=back/disconnect
 
 ## Testing
 
