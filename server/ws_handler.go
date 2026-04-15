@@ -32,6 +32,7 @@ type ClientConn struct {
 type WSHandler struct {
 	Hub      *Hub
 	registry *ConnRegistry
+	tokens   *TokenStore
 	regOnce  sync.Once
 }
 
@@ -49,9 +50,10 @@ type RoomBridge struct {
 	clients [2]*ClientConn
 }
 
-func NewWSHandler(hub *Hub) *WSHandler {
+func NewWSHandler(hub *Hub, tokens *TokenStore) *WSHandler {
 	return &WSHandler{
 		Hub:      hub,
+		tokens:   tokens,
 		registry: NewConnRegistry(),
 	}
 }
@@ -144,8 +146,62 @@ func (c *ClientConn) handleMessage(msgType string, payload []byte) {
 		c.handleInput(payload)
 	case MsgTypePlayAgain:
 		c.handlePlayAgain(payload)
+	case MsgTypeRejoin:
+		c.handleRejoin(payload)
 	default:
 		c.sendError(ErrCodeInvalidInput, "unknown message type")
+	}
+}
+
+func (c *ClientConn) handleRejoin(payload []byte) {
+	var msg RejoinMsg
+	if err := json.Unmarshal(payload, &msg); err != nil {
+		c.sendError(ErrCodeInvalidInput, "invalid rejoin message")
+		c.close()
+		return
+	}
+
+	entry, valid := c.handler.tokens.ValidateToken(msg.Token)
+	if !valid {
+		c.sendError(ErrCodeInvalidInput, "invalid or expired token")
+		c.close()
+		return
+	}
+
+	c.handler.tokens.RemoveToken(msg.Token)
+
+	room := c.hub.GetRoom(entry.RoomCode)
+	if room == nil {
+		c.sendError(ErrCodeRoomNotFound, "room not found")
+		c.close()
+		return
+	}
+
+	if room.GetState() == RoomClosed {
+		c.sendError(ErrCodeServerError, "room is closed")
+		c.close()
+		return
+	}
+
+	c.setRoomAndPlayer(room, entry.PlayerID)
+	c.handler.registry.SetConn(room.Code, entry.PlayerID, c)
+
+	mc := c.handler.registry.GetMatch(room.Code)
+	if mc != nil {
+		c.setMatch(mc)
+		c.sendOrLog(MsgTypeGameStart, mc.GameStartState(entry.PlayerID))
+	} else {
+		conns := c.handler.registry.GetClients(room.Code)
+		if conns[0] != nil && conns[1] != nil {
+			c.startMatchForRoom(room)
+		} else {
+			opponentName := c.lookupOpponentName(room, entry.PlayerID)
+			c.sendOrLog(MsgTypeJoined, JoinedMsg{
+				RoomCode:     room.Code,
+				PlayerID:     entry.PlayerID,
+				OpponentName: opponentName,
+			})
+		}
 	}
 }
 

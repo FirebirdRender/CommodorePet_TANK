@@ -20,8 +20,8 @@ func makeGrid(cellType int, rows, cols int) [][]int {
 func TestNewGameState(t *testing.T) {
 	gs := NewGameState()
 
-	if gs.Phase != PhaseConnecting {
-		t.Errorf("Phase = %v, want PhaseConnecting (%v)", gs.Phase, PhaseConnecting)
+	if gs.Phase != PhaseDisconnected {
+		t.Errorf("Phase = %v, want PhaseDisconnected (%v)", gs.Phase, PhaseDisconnected)
 	}
 	if gs.PlayerID != 0 {
 		t.Errorf("PlayerID = %d, want 0", gs.PlayerID)
@@ -384,8 +384,8 @@ func TestReset(t *testing.T) {
 
 	gs.Reset()
 
-	if gs.Phase != PhaseConnecting {
-		t.Errorf("Phase = %v, want PhaseConnecting", gs.Phase)
+	if gs.Phase != PhaseDisconnected {
+		t.Errorf("Phase = %v, want PhaseDisconnected", gs.Phase)
 	}
 	if gs.PlayerID != 0 {
 		t.Errorf("PlayerID = %d, want 0", gs.PlayerID)
@@ -428,12 +428,10 @@ func TestGamePhaseConstants(t *testing.T) {
 		want GamePhase
 		desc string
 	}{
-		{PhaseConnecting, 0, "PhaseConnecting"},
-		{PhaseLobby, 1, "PhaseLobby"},
-		{PhasePlaying, 2, "PhasePlaying"},
-		{PhaseRoundOver, 3, "PhaseRoundOver"},
-		{PhaseGameOver, 4, "PhaseGameOver"},
-		{PhaseDisconnected, 5, "PhaseDisconnected"},
+		{PhasePlaying, 0, "PhasePlaying"},
+		{PhaseRoundOver, 1, "PhaseRoundOver"},
+		{PhaseGameOver, 2, "PhaseGameOver"},
+		{PhaseDisconnected, 3, "PhaseDisconnected"},
 	}
 	for _, tt := range tests {
 		if tt.got != tt.want {
@@ -571,36 +569,6 @@ func TestApplyTickDeltaDesyncCount(t *testing.T) {
 	}
 }
 
-func TestDifficultySelectionBounds(t *testing.T) {
-	gs := NewGameState()
-
-	// Initial value should be 5 (from NewGameState)
-	if gs.DifficultySelection != 5 {
-		t.Errorf("Initial DifficultySelection = %d, want 5", gs.DifficultySelection)
-	}
-
-	// Set to various values
-	gs.DifficultySelection = 1
-	if gs.DifficultySelection != 1 {
-		t.Errorf("After setting to 1, DifficultySelection = %d, want 1", gs.DifficultySelection)
-	}
-
-	gs.DifficultySelection = 10
-	if gs.DifficultySelection != 10 {
-		t.Errorf("After setting to 10, DifficultySelection = %d, want 10", gs.DifficultySelection)
-	}
-
-	gs.DifficultySelection = 0
-	if gs.DifficultySelection != 0 {
-		t.Errorf("After setting to 0, DifficultySelection = %d, want 0", gs.DifficultySelection)
-	}
-
-	gs.DifficultySelection = 15
-	if gs.DifficultySelection != 15 {
-		t.Errorf("After setting to 15, DifficultySelection = %d, want 15", gs.DifficultySelection)
-	}
-}
-
 func TestApplyTickDeltaWithExplosions(t *testing.T) {
 	gs := NewGameState()
 	gs.Phase = PhasePlaying
@@ -661,14 +629,14 @@ func TestKeyToDir(t *testing.T) {
 		key  string
 		want int
 	}{
-		{"up", 0},
-		{"up_right", 1},
-		{"right", 2},
-		{"down_right", 3},
-		{"down", 4},
-		{"down_left", 5},
-		{"left", 6},
-		{"up_left", 7},
+		{"up", DirUp},
+		{"down", DirDown},
+		{"left", DirLeft},
+		{"right", DirRight},
+		{"up_left", DirUpLeft},
+		{"up_right", DirUpRight},
+		{"down_left", DirDownLeft},
+		{"down_right", DirDownRight},
 		{"fire", -1},
 		{"mine", -1},
 		{"invalid_key", -1},
@@ -683,23 +651,18 @@ func TestKeyToDir(t *testing.T) {
 	}
 }
 
-func TestNewGameSetsTestMode(t *testing.T) {
-	g := NewGame("ws://localhost:8080/ws", "TestPlayer", true)
-	if !g.testMode {
-		t.Error("testMode should be true when passed true")
-	}
+func TestNewGameSetsPlayerName(t *testing.T) {
+	g := NewGame("ws://localhost:8080/ws", "TestPlayer", 1, "ABCD", "token123")
 	if g.playerName != "TestPlayer" {
 		t.Errorf("playerName = %q, want 'TestPlayer'", g.playerName)
 	}
-
-	g2 := NewGame("ws://localhost:8080/ws", "Player", false)
-	if g2.testMode {
-		t.Error("testMode should be false when passed false")
+	if g.roomCode != "ABCD" {
+		t.Errorf("roomCode = %q, want 'ABCD'", g.roomCode)
 	}
 }
 
 func TestExportGameStateNativeNoop(t *testing.T) {
-	g := NewGame("ws://localhost:8080/ws", "TestPlayer", true)
+	g := NewGame("ws://localhost:8080/ws", "TestPlayer", 1, "ABCD", "token123")
 	g.ExportGameState()
 }
 

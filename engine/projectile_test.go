@@ -298,25 +298,37 @@ func TestMine_NewMine(t *testing.T) {
 }
 
 func TestMine_VisibilityTimeout(t *testing.T) {
+	b := newTestBoard()
+	clearInterior(b)
 	m := NewMine(5, 6, 1, 10.0)
+	b.SetCellType(5, 6, CellMine)
 
-	m.UpdateVisibility(11.9)
+	m.UpdateVisibility(11.9, b)
 	if !m.Visible {
 		t.Fatal("mine should still be visible at t=11.9")
 	}
 
-	m.UpdateVisibility(12.0)
+	m.UpdateVisibility(12.0, b)
 	if m.Visible {
 		t.Fatal("mine should be hidden at t=12.0")
+	}
+	if b.GetCell(5, 6) != CellEmpty {
+		t.Fatalf("invisible mine cell should be CellEmpty, got %v", b.GetCell(5, 6))
 	}
 }
 
 func TestMine_VisibilityBeforeTimeout(t *testing.T) {
+	b := newTestBoard()
+	clearInterior(b)
 	m := NewMine(5, 6, 1, 10.0)
+	b.SetCellType(5, 6, CellMine)
 
-	m.UpdateVisibility(10.5)
+	m.UpdateVisibility(10.5, b)
 	if !m.Visible {
 		t.Fatal("mine should remain visible before timeout")
+	}
+	if b.GetCell(5, 6) != CellMine {
+		t.Fatalf("visible mine cell should still be CellMine, got %v", b.GetCell(5, 6))
 	}
 }
 

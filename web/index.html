@@ -3,150 +3,79 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="TANK! - Networked multiplayer tank battle game">
-    <title>TANK!</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        html, body {
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            background: #000;
-        }
-        #game {
-            display: block;
-            margin: auto;
-            position: absolute;
-            top: 0;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            outline: none;
-        }
-        #loading {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            color: #33ff33;
-            font-family: monospace;
-            font-size: 18px;
-            text-align: center;
-            z-index: 10;
-        }
-        #error {
-            display: none;
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            color: #f00;
-            font-family: monospace;
-            font-size: 14px;
-            padding: 20px;
-            white-space: pre-wrap;
-            text-align: center;
-            z-index: 20;
-        }
-        #log {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            max-height: 200px;
-            overflow-y: auto;
-            color: #aaa;
-            font-family: monospace;
-            font-size: 11px;
-            padding: 4px 8px;
-            background: rgba(0,0,0,0.8);
-            z-index: 30;
-            display: none;
-        }
-    </style>
+    <title>TANK! NETWORK BATTLE</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <canvas id="game" width="800" height="460" tabindex="0"></canvas>
-    <div id="loading">LOADING...</div>
-    <div id="error"></div>
-    <div id="log"></div>
-    <script src="wasm_exec.js"></script>
-    <script>
-    (function() {
-        var canvas = document.getElementById('game');
-        var loading = document.getElementById('loading');
-        var errorDiv = document.getElementById('error');
-        var logDiv = document.getElementById('log');
+    <div id="error-banner" class="error-text hidden"></div>
 
-        function log(msg) {
-            console.log('[TANK] ' + msg);
-            if (logDiv) {
-                logDiv.style.display = 'block';
-                logDiv.appendChild(document.createTextNode(msg + '\n'));
-                logDiv.scrollTop = logDiv.scrollHeight;
-            }
-        }
+    <main class="terminal">
+        <header class="terminal-header">
+            <div class="lobby-title">T A N K !</div>
+            <div class="lobby-subtitle">NETWORK BATTLE</div>
+        </header>
 
-        var urlParams = new URLSearchParams(window.location.search);
-        window.playerName = urlParams.get('name') || 'Player';
+        <!-- SCREEN: LOBBY -->
+        <section id="screen-lobby" class="screen">
+            <div class="input-group">
+                <label class="input-label" for="player-name">YOUR NAME:</label>
+                <input type="text" id="player-name" class="input-field" placeholder="PLAYER" autocomplete="off">
+            </div>
 
-        canvas.addEventListener('click', function() {
-            canvas.focus();
-        });
+            <div class="input-group">
+                <label class="input-label">DIFFICULTY: <span id="difficulty-value">5</span></label>
+                <input type="range" id="difficulty" class="difficulty-slider" min="1" max="10" value="5">
+            </div>
 
-        function showError(msg) {
-            log('ERROR: ' + msg);
-            if (loading) loading.style.display = 'none';
-            if (errorDiv) {
-                errorDiv.style.display = 'block';
-                errorDiv.textContent = 'Error: ' + msg;
-            }
-        }
+            <div class="btn-container">
+                <button id="btn-create" class="btn btn-primary">CREATE ROOM</button>
+            </div>
 
-        if (!WebAssembly.instantiateStreaming) {
-            WebAssembly.instantiateStreaming = function(promise, importObj) {
-                return promise.then(function(response) {
-                    return response.arrayBuffer();
-                }).then(function(buffer) {
-                    return WebAssembly.instantiate(buffer, importObj);
-                });
-            };
-        }
+            <div class="divider">-- OR --</div>
 
-        async function load() {
-            try {
-                log('Initializing Go WASM runtime...');
-                if (typeof Go === 'undefined') {
-                    showError('Go is not defined — wasm_exec.js failed to load');
-                    return;
-                }
-                var go = new Go();
-                log('Fetching game.wasm...');
-                var fetchResponse = await fetch('game.wasm');
-                log('Fetch status: ' + fetchResponse.status + ' ' + fetchResponse.statusText);
-                if (!fetchResponse.ok) {
-                    showError('Failed to fetch game.wasm: ' + fetchResponse.status);
-                    return;
-                }
-                log('Compiling WebAssembly...');
-                var result = await WebAssembly.instantiateStreaming(fetchResponse, go.importObject);
-                log('WASM compiled. Running Go program...');
-                go.run(result.instance);
-                log('Go program started. Hiding loading screen.');
-                if (loading) loading.style.display = 'none';
-                canvas.focus();
-            } catch (err) {
-                showError(err && err.message ? err.message : String(err));
-            }
-        }
+            <div class="input-group">
+                <label class="input-label">JOIN ROOM:</label>
+                <div class="join-row">
+                    <input type="text" id="join-code" class="input-field" maxlength="4" placeholder="CODE" autocomplete="off">
+                    <button id="btn-join" class="btn btn-secondary">JOIN</button>
+                </div>
+            </div>
+        </section>
 
-        log('Page loaded. Starting WASM bootstrap...');
-        load();
-    })();
-    </script>
+        <!-- SCREEN: WAITING -->
+        <section id="screen-waiting" class="screen hidden">
+            <div class="room-code-container">
+                <div class="input-label">ROOM CODE:</div>
+                <div id="room-code-display" class="room-code-display">----</div>
+                <button id="copy-btn" class="btn copy-btn">COPY</button>
+            </div>
+
+            <div id="difficulty-display" class="status-text">
+                DIFFICULTY: 5
+            </div>
+
+            <div id="waiting-status" class="status-text">
+                WAITING FOR OPPONENT...
+            </div>
+
+            <div class="btn-container">
+                <button id="btn-cancel" class="btn btn-secondary">CANCEL</button>
+            </div>
+        </section>
+
+        <!-- SCREEN: JOINING -->
+        <section id="screen-join" class="screen hidden">
+            <div class="status-text" style="text-align: center;">
+                JOINING ROOM: <span id="join-display-code">----</span><br>
+                CONNECTING... <span class="blink">_</span>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer-text">
+        COMMODORE PET TERMINAL EMULATION V1.0
+    </footer>
+
+    <script src="app.js"></script>
 </body>
 </html>

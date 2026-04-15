@@ -45,8 +45,11 @@ func (r *Renderer) Draw(screen *ebiten.Image, state *GameState) {
 		r.drawGrid(screen, state)
 		r.drawExplosions(screen, state)
 		r.drawHUD(screen, state)
-	} else if state.Phase == PhaseLobby || state.Phase == PhaseConnecting {
-		r.drawLobbyText(screen, state)
+		if state.EscConfirmPending {
+			r.drawEscConfirmOverlay(screen, state)
+		}
+	} else if state.Phase == PhaseDisconnected {
+		r.drawDisconnected(screen, state)
 	} else if state.Phase == PhaseGameOver {
 		r.drawGrid(screen, state)
 		r.drawHUD(screen, state)
@@ -93,13 +96,40 @@ func (r *Renderer) drawGrid(screen *ebiten.Image, state *GameState) {
 		return
 	}
 
+	barrelPositions := make(map[[2]int]int)
+	for _, bw := range state.BarrelWreckage {
+		barrelPositions[[2]int{bw.X, bw.Y}] = bw.Dir
+	}
+	bodyPositions := make(map[[2]int]bool)
+	for _, pos := range state.BarrelHitBodies {
+		bodyPositions[pos] = true
+	}
+
 	for y, row := range state.Grid {
 		for x, cellType := range row {
-			def, ok := cellGlyphs[cellType]
-			if !ok {
-				def = cellGlyphs[CellEmpty]
+			pos := [2]int{x, y}
+			var glyph *ebiten.Image
+
+			if cellType == CellWreckageP1 || cellType == CellWreckageP2 {
+				if dir, ok := barrelPositions[pos]; ok {
+					curlRune := '/'
+					if dir == DirUp || dir == DirDownRight || dir == DirLeft {
+						curlRune = '\\'
+					}
+					glyph = r.cache.Get(curlRune, ColorPhosphorGreen, ColorBlack, true)
+				} else if bodyPositions[pos] {
+					glyph = r.cache.Get('✕', ColorPhosphorGreen, ColorBlack, true)
+				} else {
+					glyph = r.cache.Get('▗', ColorPhosphorGreen, ColorBlack, false)
+				}
+			} else {
+				def, ok := cellGlyphs[cellType]
+				if !ok {
+					def = cellGlyphs[CellEmpty]
+				}
+				glyph = r.cache.Get(def.Rune, def.FgColor, ColorBlack, def.Inverted)
 			}
-			glyph := r.cache.Get(def.Rune, def.FgColor, ColorBlack, def.Inverted)
+
 			op := &ebiten.DrawImageOptions{}
 			op.GeoM.Translate(float64(x*CellSize), float64(y*CellSize+HUDHeight))
 			screen.DrawImage(glyph, op)
@@ -246,81 +276,12 @@ func (r *Renderer) drawInvertedTextRight(screen *ebiten.Image, txt string, right
 	r.drawInvertedText(screen, txt, rightX-w, y, face)
 }
 
-func (r *Renderer) drawLobbyText(screen *ebiten.Image, state *GameState) {
+func (r *Renderer) drawDisconnected(screen *ebiten.Image, state *GameState) {
 	var lines []string
-
-	// Calculate pulsing dots animation
-	dots := ""
-	switch (state.AnimTick / 30) % 3 {
-	case 0:
-		dots = "."
-	case 1:
-		dots = ".."
-	case 2:
-		dots = "..."
-	}
-
-	switch {
-	case state.Phase == PhaseConnecting:
-		if state.ConnectErr != "" {
-			lines = []string{state.ConnectErr}
-		} else {
-			lines = []string{"CONNECTING" + dots}
-		}
-
-	case state.Phase == PhaseDisconnected:
-		if state.ErrorMsgText != "" {
-			lines = []string{"DISCONNECTED", state.ErrorMsgText, "PRESS ESC TO EXIT"}
-		} else {
-			lines = []string{"DISCONNECTED", "PRESS ESC TO EXIT"}
-		}
-
-	case state.LobbyMode == LobbyModeDifficulty:
-		lines = []string{
-			fmt.Sprintf("SELECT DIFFICULTY: %d", state.DifficultySelection),
-			"",
-			"UP/DOWN OR 1-9 TO CHANGE",
-			"0 FOR LEVEL 10",
-			"ENTER TO CONFIRM",
-			"ESC TO CANCEL",
-		}
-
-	case state.LobbyMode == LobbyModeWaiting && state.RoomCode != "" && state.OpponentName == "":
-		lines = []string{
-			"",
-			"SHARE THIS CODE:",
-			"  " + state.RoomCode + "  ",
-			"",
-			"WAITING FOR OPPONENT" + dots,
-		}
-
-	case state.LobbyMode == LobbyModeWaiting && state.RoomCode != "":
-		lines = []string{
-			"ROOM: " + state.RoomCode,
-			"VS " + state.OpponentName,
-		}
-
-	case state.LobbyMode == LobbyModeJoining:
-		prompt := "JOIN ROOM: " + state.RoomCodeInput
-		if len(state.RoomCodeInput) < 4 {
-			prompt += "_"
-		}
-		lines = []string{prompt, "TYPE 4-LETTER CODE, PRESS ENTER"}
-
-	case state.LobbyMode == LobbyModeCreating:
-		lines = []string{"CREATING ROOM" + dots}
-
-	default:
-		lines = []string{
-			"TANK!",
-			"PRESS C TO CREATE ROOM",
-			"PRESS J TO JOIN ROOM",
-			fmt.Sprintf("YOU: %s", state.PlayerName),
-		}
-	}
-
 	if state.ErrorMsgText != "" {
-		lines = append(lines, "ERROR: "+state.ErrorMsgText)
+		lines = []string{"DISCONNECTED", state.ErrorMsgText, "ESC - RETURN TO LOBBY"}
+	} else {
+		lines = []string{"DISCONNECTED", "ESC - RETURN TO LOBBY"}
 	}
 
 	face := &text.GoTextFace{
@@ -341,26 +302,6 @@ func (r *Renderer) drawLobbyText(screen *ebiten.Image, state *GameState) {
 
 		op.ColorScale.ScaleWithColor(colorVal)
 		text.Draw(screen, line, face, op)
-	}
-
-	// Draw difficulty selection bar (only in LobbyModeDifficulty)
-	if state.LobbyMode == LobbyModeDifficulty {
-		// Center the bar horizontally
-		barWidth := 10 * CellSize * 2
-		startX := float64(BoardCols*CellSize)/2 - float64(barWidth/2)
-		barY := float64(BoardRows*CellSize)/2 - float64(len(lines))*12 + float64(len(lines))*30 + HUDHeight + 20
-		for i := 1; i <= 10; i++ {
-			var glyph rune
-			if i <= state.DifficultySelection {
-				glyph = '█' // filled block
-			} else {
-				glyph = '░' // empty block
-			}
-			ch := r.cache.Get(glyph, ColorPhosphorGreen, ColorBlack, false)
-			op := &ebiten.DrawImageOptions{}
-			op.GeoM.Translate(startX+float64((i-1)*CellSize*2), barY)
-			screen.DrawImage(ch, op)
-		}
 	}
 }
 
@@ -399,7 +340,7 @@ func (r *Renderer) drawGameOverOverlay(screen *ebiten.Image, state *GameState) {
 		Size:   16,
 	}
 
-	if state.LobbyMode == LobbyModeRematch {
+	if state.OpponentWantsRematch {
 		promptText := "WAITING FOR OPPONENT..."
 		pw, _ := text.Measure(promptText, promptFace, 0)
 		px := float64(BoardCols*CellSize)/2 - pw/2
@@ -409,7 +350,7 @@ func (r *Renderer) drawGameOverOverlay(screen *ebiten.Image, state *GameState) {
 		pop.ColorScale.ScaleWithColor(ColorPhosphorGreen)
 		text.Draw(screen, promptText, promptFace, pop)
 	} else {
-		prompt1 := "P - PLAY AGAIN    ESC - EXIT"
+		prompt1 := "P - PLAY AGAIN    ESC - LOBBY"
 		p1w, _ := text.Measure(prompt1, promptFace, 0)
 		p1x := float64(BoardCols*CellSize)/2 - p1w/2
 		p1y := y + 32
@@ -418,4 +359,44 @@ func (r *Renderer) drawGameOverOverlay(screen *ebiten.Image, state *GameState) {
 		pop1.ColorScale.ScaleWithColor(ColorPhosphorGreen)
 		text.Draw(screen, prompt1, promptFace, pop1)
 	}
+}
+
+func (r *Renderer) drawEscConfirmOverlay(screen *ebiten.Image, state *GameState) {
+	face := &text.GoTextFace{
+		Source: r.hudFace.Source,
+		Size:   20,
+	}
+
+	line1 := "LEAVE GAME?"
+	line2 := "ESC TO CONFIRM / ANY KEY TO STAY"
+
+	w1, _ := text.Measure(line1, face, 0)
+	w2, _ := text.Measure(line2, face, 0)
+	maxW := w1
+	if w2 > maxW {
+		maxW = w2
+	}
+
+	centerX := float64(BoardCols*CellSize) / 2
+	centerY := float64(BoardRows*CellSize)/2 + HUDHeight
+
+	boxW := maxW + 40
+	boxH := float64(70)
+	boxX := centerX - boxW/2
+	boxY := centerY - boxH/2
+
+	vector.FillRect(screen, float32(boxX), float32(boxY), float32(boxW), float32(boxH),
+		ColorBlack, false)
+	vector.StrokeRect(screen, float32(boxX), float32(boxY), float32(boxW), float32(boxH), 2,
+		color.RGBA{255, 80, 80, 255}, false)
+
+	op1 := &text.DrawOptions{}
+	op1.GeoM.Translate(centerX-w1/2, centerY-20)
+	op1.ColorScale.ScaleWithColor(color.RGBA{255, 80, 80, 255})
+	text.Draw(screen, line1, face, op1)
+
+	op2 := &text.DrawOptions{}
+	op2.GeoM.Translate(centerX-w2/2, centerY+10)
+	op2.ColorScale.ScaleWithColor(ColorPhosphorGreen)
+	text.Draw(screen, line2, face, op2)
 }

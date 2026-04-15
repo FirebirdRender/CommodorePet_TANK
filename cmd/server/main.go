@@ -22,7 +22,9 @@ func main() {
 	flag.Parse()
 
 	hub := server.NewHub()
-	handler := server.NewWSHandler(hub)
+	tokens := server.NewTokenStore()
+	handler := server.NewWSHandler(hub, tokens)
+	roomAPI := server.NewRoomAPI(hub, handler.Registry(), tokens)
 
 	mux := http.NewServeMux()
 	mux.Handle("/ws", handler)
@@ -30,6 +32,7 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintln(w, "ok")
 	})
+	roomAPI.RegisterRoutes(mux)
 
 	fileHandler := server.WASMNoCacheMiddleware(http.FileServer(http.Dir(*dir)))
 	mux.Handle("/", fileHandler)
@@ -40,8 +43,8 @@ func main() {
 		Addr:         *addr,
 		Handler:      wrappedMux,
 		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 60 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		WriteTimeout: 300 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 
 	go func() {
@@ -49,6 +52,7 @@ func main() {
 		defer ticker.Stop()
 		for range ticker.C {
 			hub.CleanupStaleRooms(*maxRoomAge)
+			tokens.CleanupStaleTokens(*maxRoomAge)
 		}
 	}()
 

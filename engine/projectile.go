@@ -116,9 +116,12 @@ func NewMine(x, y, ownerID int, placedTime float64) *Mine {
 	}
 }
 
-func (m *Mine) UpdateVisibility(simTime float64) {
+func (m *Mine) UpdateVisibility(simTime float64, b *Board) {
 	if m.Visible && (simTime-m.VisibleStartTime) >= MineVisibleDuration {
 		m.Visible = false
+		if b.InBounds(m.X, m.Y) && b.GetCell(m.X, m.Y) == CellMine {
+			b.SetCellType(m.X, m.Y, CellEmpty)
+		}
 	}
 }
 

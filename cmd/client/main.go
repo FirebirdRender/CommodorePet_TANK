@@ -9,34 +9,26 @@ import (
 )
 
 func main() {
-	addr := flag.String("addr", "", "server WebSocket address (WASM: auto-detected from page URL)")
-	name := flag.String("name", "", "player name (default: Player or URL ?name=)")
+	addr := flag.String("addr", "", "server WebSocket address (WASM: auto-detected from tankConfig)")
+	name := flag.String("name", "", "player name (WASM: from tankConfig)")
 	flag.Parse()
 
-	playerName := *name
-	if playerName == "" {
-		playerName = getJSPlayerName()
-	}
-	if playerName == "" {
-		playerName = "Player"
-	}
+	serverURL, playerName, playerID, roomCode, token := getConfig()
 
-	serverURL := *addr
-	if serverURL == "" {
-		serverURL = getJSServerURL()
+	if *addr != "" {
+		serverURL = *addr
 	}
-	if serverURL == "" {
-		serverURL = "ws://localhost:8080/ws"
+	if *name != "" {
+		playerName = *name
 	}
 
-	testMode := getJSTestMode()
+	log.Printf("TANK! connecting to %s as %s (room=%s, pid=%d)", serverURL, playerName, roomCode, playerID)
 
-	log.Printf("TANK! connecting to %s as %s", serverURL, playerName)
+	game := client.NewGame(serverURL, playerName, playerID, roomCode, token)
 
-	game := client.NewGame(serverURL, playerName, testMode)
-
-	ebiten.SetWindowSize(800, 460)
+	ebiten.SetWindowSize(800, 480)
 	ebiten.SetWindowTitle("TANK!")
+	ebiten.SetRunnableOnUnfocused(true)
 
 	if err := ebiten.RunGame(game); err != nil {
 		panic(err)

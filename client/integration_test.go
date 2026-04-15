@@ -16,7 +16,8 @@ import (
 func newTestServer(tb testing.TB) *httptest.Server {
 	tb.Helper()
 	hub := server.NewHub()
-	handler := server.NewWSHandler(hub)
+	tokens := server.NewTokenStore()
+	handler := server.NewWSHandler(hub, tokens)
 	ts := httptest.NewServer(handler)
 	tb.Cleanup(ts.Close)
 	return ts
@@ -336,11 +337,9 @@ func TestClientDisconnectHandling(t *testing.T) {
 	// Also verify GameState would transition to PhaseDisconnected
 	gs := NewGameState()
 	gs.ApplyRoomCreated(RoomCreatedMsg{RoomCode: "TEST"})
-	if gs.Phase != PhaseLobby {
-		// The state after room created is still lobby
+	if gs.RoomCode != "TEST" {
+		t.Errorf("RoomCode = %q, want 'TEST'", gs.RoomCode)
 	}
-	// When network disconnects, the game loop would call OnDisconnect
-	// which sets Phase to PhaseDisconnected — we test this directly:
 	gs.Phase = PhaseDisconnected
 	if gs.Phase != PhaseDisconnected {
 		t.Error("expected PhaseDisconnected")

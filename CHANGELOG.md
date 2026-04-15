@@ -1,5 +1,29 @@
 ## Changelog
 
+### 0.8.0 - 2026-04-15 — Wave 8: HTMX Lobby & Focus Fixes
+
+**New:**
+- **HTML Lobby Page:** Replaced WASM-only lobby with HTMX-based HTML page (`web/index.html`). Room creation, joining, and status display all work server-side via HTTP API.
+- **ESC Confirmation Dialog:** Pressing ESC during gameplay shows a confirmation dialog: "LEAVE GAME? ESC TO CONFIRM / ANY KEY TO STAY". Second ESC confirms exit. Any other key dismisses.
+- **Debug Status Bar:** On-screen status bar (`PHASE: PLAY CONN: YES KEYS: 42 LAST: right TICK: 1234`) shows game state, connection status, key count, last key, and anim tick for debugging.
+- **Focus Handling:** Added `canvas.focus()` before WASM init, visibilitychange handler to restore focus, and "CLICK HERE TO PLAY" button for keyboard recovery.
+
+**Bug Fixes:**
+- **Circular Dependency (Match Start):** WASM client only sent `ready` after receiving `game_start`, but server only sent `game_start` after receiving `ready` — deadlock. Match now auto-starts when both players join.
+- **Difficulty Slider on Waiting Screen:** Difficulty selector moved to lobby screen. Waiting screen shows static difficulty (e.g., "DIFFICULTY: 5").
+- **SSE WriteTimeout Too Short:** Increased from 60s to 300s to accommodate SSE connections lasting up to 5 minutes.
+- **Barrel Direction Flash:** `keyToDir()` now returns correct Direction constants instead of magic numbers. Fixed barrel prediction to clear on direction key releases only (not fire/mine).
+- **Room Code Copy Button:** Added `document.execCommand('copy')` fallback for non-HTTPS contexts.
+- **Window Focus:** Added `SetRunnableOnUnfocused(true)` and focus handlers to restore input after tab switch.
+- **Mineral Visibility:** Mines now go invisible 2s after owner tank moves away, visibility timer resets when tank steps back onto mine, cell becomes `EMPTY` when invisible (so shots can destroy it).
+- **Barrel Wreckage Rendering:** Barrel-hit cells now render with directional curl glyphs (`/` or `\`) matching PETSCII `CURL_UP`/`CURL_DOWN`. Body-hit cells render inverted X. Dice wreckage renders dot.
+- **Game Over ESC:** Added `PhaseGameOver` to ESC handler — redirects to lobby.
+
+**Breaking Changes:**
+- **Lobby Removed:** Removed `PhaseConnecting`, `PhaseLobby`, `LobbyMode*` state. Game starts immediately after WebSocket connection. WASM client simplified (~200 lines).
+- **Input Changes:** Removed `PollHeldDirections()` — each keypress = one movement (no continuous movement while holding a key).
+- **Network Phase:** Removed explicit `ready` message handling. Match starts automatically on both-players-join.
+
 ### Wave 7.1: Auto-Start Bug Fix & Headless E2E (April 14, 2026)
 
 Server

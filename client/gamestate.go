@@ -6,24 +6,10 @@ import "log"
 type GamePhase int
 
 const (
-	PhaseConnecting GamePhase = iota
-	PhaseLobby
-	PhasePlaying
+	PhasePlaying GamePhase = iota
 	PhaseRoundOver
 	PhaseGameOver
 	PhaseDisconnected
-)
-
-// LobbyMode represents the current lobby sub-state
-type LobbyMode int
-
-const (
-	LobbyModeStart      LobbyMode = iota
-	LobbyModeDifficulty           // selecting difficulty before creating room
-	LobbyModeCreating
-	LobbyModeJoining
-	LobbyModeWaiting
-	LobbyModeRematch // waiting for opponent to accept rematch
 )
 
 // KeyframeInterval is the number of ticks between full keyframes (must match server)
@@ -65,24 +51,27 @@ type GameState struct {
 	Connected bool
 	Error     *ErrorMsg // latest error from server, nil if no error
 
-	// Lobby UI state
-	LobbyMode            LobbyMode
-	DifficultySelection  int // selected difficulty (1-10) before creating room
-	RoomCodeInput        string
 	ErrorMsgText         string
-	ConnectErr           string // connection error message for display
+	ConnectErr           string
 	OpponentWantsRematch bool
 
 	// Barrel prediction: playerID → predicted direction (only for local player)
 	PredictedDir map[int]int
+
+	// Barrel wreckage overlay (from server tick)
+	BarrelWreckage  []BarrelWreckageState
+	BarrelHitBodies [][2]int
+
+	EscConfirmPending bool
+	DebugLastKey      string
+	DebugKeyCount     int
 }
 
 func NewGameState() *GameState {
 	return &GameState{
-		Phase:               PhaseConnecting,
-		DifficultySelection: 5,
-		ExplosionTimers:     make(map[[2]int]float64),
-		DirtyCells:          nil,
+		Phase:           PhaseDisconnected,
+		ExplosionTimers: make(map[[2]int]float64),
+		DirtyCells:      nil,
 	}
 }
 
@@ -102,11 +91,14 @@ func (gs *GameState) ApplyGameStart(msg GameStartMsg) {
 	gs.Phase = PhasePlaying
 	gs.PlayerID = msg.YourPlayerID
 	gs.Difficulty = msg.Difficulty
+	gs.EscConfirmPending = false
 	gs.Grid = msg.Grid
 	gs.Tanks = msg.Tanks
 	gs.Shots = nil
 	gs.Mines = nil
 	gs.Explosions = nil
+	gs.BarrelWreckage = nil
+	gs.BarrelHitBodies = nil
 	gs.ExplosionTimers = make(map[[2]int]float64)
 	gs.DirtyCells = nil
 	gs.DesyncCount = 0
@@ -126,6 +118,8 @@ func (gs *GameState) ApplyTick(msg TickMsg) {
 	gs.Tanks = msg.Tanks
 	gs.Shots = msg.Shots
 	gs.Mines = msg.Mines
+	gs.BarrelWreckage = msg.BarrelWreckage
+	gs.BarrelHitBodies = msg.BarrelHitBodies
 
 	newTimers := make(map[[2]int]float64, len(gs.ExplosionTimers)+len(msg.Explosions))
 	for pos, remaining := range gs.ExplosionTimers {
@@ -157,6 +151,8 @@ func (gs *GameState) ApplyTickDelta(msg TickDeltaMsg) {
 	gs.Tanks = msg.Tanks
 	gs.Shots = msg.Shots
 	gs.Mines = msg.Mines
+	gs.BarrelWreckage = msg.BarrelWreckage
+	gs.BarrelHitBodies = msg.BarrelHitBodies
 
 	newTimers := make(map[[2]int]float64, len(gs.ExplosionTimers)+len(msg.Explosions))
 	for pos, remaining := range gs.ExplosionTimers {
@@ -230,21 +226,21 @@ func (gs *GameState) ApplyRematch(msg RematchMsg) {
 func keyToDir(key string) int {
 	switch key {
 	case "up":
-		return 0
-	case "up_right":
-		return 1
-	case "right":
-		return 2
-	case "down_right":
-		return 3
+		return DirUp
 	case "down":
-		return 4
-	case "down_left":
-		return 5
+		return DirDown
 	case "left":
-		return 6
+		return DirLeft
+	case "right":
+		return DirRight
 	case "up_left":
-		return 7
+		return DirUpLeft
+	case "up_right":
+		return DirUpRight
+	case "down_left":
+		return DirDownLeft
+	case "down_right":
+		return DirDownRight
 	default:
 		return -1
 	}

@@ -16,12 +16,14 @@ type CellChange struct {
 // TickDeltaMsg is sent instead of TickMsg for non-keyframe ticks.
 // It contains only the changes since the last tick, not the full state.
 type TickDeltaMsg struct {
-	Tick         uint64           `json:"tick"`
-	ChangedCells []CellChange     `json:"changed_cells"`
-	Tanks        [2]TankState     `json:"tanks"`
-	Shots        []ShotState      `json:"shots"`
-	Mines        []MineState      `json:"mines"`
-	Explosions   []ExplosionState `json:"explosions"`
+	Tick            uint64                `json:"tick"`
+	ChangedCells    []CellChange          `json:"changed_cells"`
+	Tanks           [2]TankState          `json:"tanks"`
+	Shots           []ShotState           `json:"shots"`
+	Mines           []MineState           `json:"mines"`
+	Explosions      []ExplosionState      `json:"explosions"`
+	BarrelWreckage  []BarrelWreckageState `json:"barrel_wreckage"`
+	BarrelHitBodies [][2]int              `json:"barrel_hit_bodies"`
 }
 
 // DeltaTracker computes the diff between ticks and decides when to send

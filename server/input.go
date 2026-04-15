@@ -7,17 +7,6 @@ import (
 	"github.com/FirebirdRender/CommodorePet_TANK/engine"
 )
 
-var directionPriority = [...]engine.Action{
-	engine.ActionUp,
-	engine.ActionDown,
-	engine.ActionLeft,
-	engine.ActionRight,
-	engine.ActionUpLeft,
-	engine.ActionUpRight,
-	engine.ActionDownLeft,
-	engine.ActionDownRight,
-}
-
 type InputTracker struct {
 	held    map[engine.Action]bool
 	pending []engine.Action
@@ -56,12 +45,6 @@ func (t *InputTracker) ConsumeAction() engine.Action {
 		action := t.pending[0]
 		t.pending = nil
 		return action
-	}
-
-	for _, action := range directionPriority {
-		if t.held[action] {
-			return action
-		}
 	}
 
 	return engine.ActionNone

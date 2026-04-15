@@ -2,4 +2,6 @@
 
 package client
 
+func redirectLobby() {}
+
 func (g *Game) ExportGameState() {}

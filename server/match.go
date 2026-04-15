@@ -236,12 +236,14 @@ func (mc *MatchController) broadcastTick() {
 		mc.mu.Unlock()
 
 		deltaMsg := &TickDeltaMsg{
-			Tick:         tick,
-			ChangedCells: changes,
-			Tanks:        fullMsg.Tanks,
-			Shots:        fullMsg.Shots,
-			Mines:        fullMsg.Mines,
-			Explosions:   fullMsg.Explosions,
+			Tick:            tick,
+			ChangedCells:    changes,
+			Tanks:           fullMsg.Tanks,
+			Shots:           fullMsg.Shots,
+			Mines:           fullMsg.Mines,
+			Explosions:      fullMsg.Explosions,
+			BarrelWreckage:  fullMsg.BarrelWreckage,
+			BarrelHitBodies: fullMsg.BarrelHitBodies,
 		}
 		mc.emitTickDelta(tick, deltaMsg)
 		mc.delta.UpdateState(fullMsg.Grid)
@@ -256,7 +258,7 @@ func (mc *MatchController) buildTickMsgLocked() *TickMsg {
 
 	mines := make([]MineState, 0, len(mc.gc.Mines))
 	for _, mine := range mc.gc.Mines {
-		mines = append(mines, MineStateFromEngine(mine, mc.gc.SimTime))
+		mines = append(mines, MineStateFromEngine(mine))
 	}
 
 	explosions := make([]ExplosionState, 0, len(mc.gc.Explosions))
@@ -265,12 +267,14 @@ func (mc *MatchController) buildTickMsgLocked() *TickMsg {
 	}
 
 	return &TickMsg{
-		Tick:       mc.tick,
-		Grid:       GridFromEngine(mc.gc.Board),
-		Tanks:      [2]TankState{TankStateFromEngine(mc.gc.Tanks[0]), TankStateFromEngine(mc.gc.Tanks[1])},
-		Shots:      shots,
-		Mines:      mines,
-		Explosions: explosions,
+		Tick:            mc.tick,
+		Grid:            GridFromEngine(mc.gc.Board),
+		Tanks:           [2]TankState{TankStateFromEngine(mc.gc.Tanks[0]), TankStateFromEngine(mc.gc.Tanks[1])},
+		Shots:           shots,
+		Mines:           mines,
+		Explosions:      explosions,
+		BarrelWreckage:  BarrelWreckageFromEngine(mc.gc.BarrelWreckageRegistry),
+		BarrelHitBodies: BarrelHitBodiesFromEngine(mc.gc.BarrelHitBodies),
 	}
 }
 

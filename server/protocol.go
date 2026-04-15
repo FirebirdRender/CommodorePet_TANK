@@ -16,6 +16,7 @@ const (
 	MsgTypePlayAgainAck = "play_again_ack"
 	MsgTypeRematch      = "rematch"
 	MsgTypeOpponentLeft = "opponent_left"
+	MsgTypeRejoin       = "rejoin"
 
 	MsgTypeRoomCreated = "room_created"
 	MsgTypeJoined      = "joined"
@@ -91,12 +92,14 @@ type GameStartMsg struct {
 }
 
 type TickMsg struct {
-	Tick       uint64           `json:"tick"`
-	Grid       [][]int          `json:"grid"`
-	Tanks      [2]TankState     `json:"tanks"`
-	Shots      []ShotState      `json:"shots"`
-	Mines      []MineState      `json:"mines"`
-	Explosions []ExplosionState `json:"explosions"`
+	Tick            uint64                `json:"tick"`
+	Grid            [][]int               `json:"grid"`
+	Tanks           [2]TankState          `json:"tanks"`
+	Shots           []ShotState           `json:"shots"`
+	Mines           []MineState           `json:"mines"`
+	Explosions      []ExplosionState      `json:"explosions"`
+	BarrelWreckage  []BarrelWreckageState `json:"barrel_wreckage"`
+	BarrelHitBodies [][2]int              `json:"barrel_hit_bodies"`
 }
 
 type RoundOverMsg struct {
@@ -114,6 +117,19 @@ type GameOverMsg struct {
 type ErrorMsg struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
+}
+
+type RejoinMsg struct {
+	RoomCode   string `json:"room_code"`
+	PlayerID   int    `json:"player_id"`
+	Token      string `json:"token"`
+	PlayerName string `json:"player_name"`
+}
+
+type RejoinAckMsg struct {
+	RoomCode     string `json:"room_code"`
+	PlayerID     int    `json:"player_id"`
+	OpponentName string `json:"opponent_name,omitempty"`
 }
 
 type TankState struct {
@@ -147,6 +163,12 @@ type ExplosionState struct {
 	Y               int     `json:"y"`
 	Duration        float64 `json:"duration"`
 	IsChainReaction bool    `json:"is_chain_reaction"`
+}
+
+type BarrelWreckageState struct {
+	X   int `json:"x"`
+	Y   int `json:"y"`
+	Dir int `json:"dir"`
 }
 
 func WrapMessage(msgType string, payload any) ([]byte, error) {
@@ -197,12 +219,12 @@ func ShotStateFromEngine(s *engine.Shot) ShotState {
 	}
 }
 
-func MineStateFromEngine(m *engine.Mine, simTime float64) MineState {
+func MineStateFromEngine(m *engine.Mine) MineState {
 	return MineState{
 		X:       m.X,
 		Y:       m.Y,
 		OwnerID: m.OwnerID,
-		Visible: simTime-m.PlacedTime < engine.MineVisibleDuration,
+		Visible: m.Visible,
 	}
 }
 
@@ -213,6 +235,22 @@ func ExplosionStateFromEngine(e *engine.Explosion) ExplosionState {
 		Duration:        e.Duration,
 		IsChainReaction: e.IsChainReaction,
 	}
+}
+
+func BarrelWreckageFromEngine(entries []engine.BarrelWreckageEntry) []BarrelWreckageState {
+	result := make([]BarrelWreckageState, 0, len(entries))
+	for _, e := range entries {
+		result = append(result, BarrelWreckageState{X: e.Pos[0], Y: e.Pos[1], Dir: int(e.Dir)})
+	}
+	return result
+}
+
+func BarrelHitBodiesFromEngine(bodies map[[2]int]bool) [][2]int {
+	result := make([][2]int, 0, len(bodies))
+	for pos := range bodies {
+		result = append(result, pos)
+	}
+	return result
 }
 
 func GridFromEngine(b *engine.Board) [][]int {

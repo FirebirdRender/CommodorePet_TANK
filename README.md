@@ -2,6 +2,10 @@
 
 Faithful recreation of the Commodore PET TANK! game with networked multiplayer via WebSocket and WebAssembly.
 
+## Version
+
+Current: **0.8.0** (Wave 8 - HTMX Lobby, ESC Dialog, Focus Fixes)
+
 ## Quick Start
 
 Prerequisites: Go 1.21+
@@ -18,6 +22,14 @@ make build-all
 open http://localhost:8080/
 ```
 
+## How to Play
+
+1. Open `http://localhost:8080/` in a browser
+2. Enter your name
+3. **Create Room** — set difficulty (1-10) and get a 4-character room code to share
+4. **Join Room** — enter a room code shared by your opponent
+5. Once both players have joined, the WASM game client loads automatically
+
 ## Development
 
 ```bash
@@ -29,11 +41,30 @@ make clean         # Remove build artifacts
 ## Project Structure
 
 - `engine/` — Deterministic game engine (board, tanks, physics, collisions)
-- `server/` — WebSocket server (rooms, matchmaking, delta encoding)
+- `server/` — HTTP API + WebSocket server (rooms, matchmaking, delta encoding)
 - `client/` — WASM client (renderer, input, audio, CRT shader)
 - `cmd/server/` — Server entry point
 - `cmd/client/` — Client/WASM entry point
-- `web/` — Static files (HTML, WASM binary, JS runtime)
+- `web/` — Static files (HTML lobby, WASM binary, JS, CSS, fonts)
+
+## Architecture
+
+The game uses a two-phase connection model:
+
+1. **HTML Lobby** (`/`) — Players create/join rooms via HTTP API, using a PETSCII-styled web interface with SSE for real-time updates
+2. **WASM Game** (`/game`) — Once both players are ready, the browser redirects to the WASM game client which connects via WebSocket with a rejoin token
+
+This eliminates the canvas-focus bug that plagues keyboard input in WASM-rendered lobby UIs.
+
+## HTTP API
+
+| Method | Endpoint | Description |
+|--------|-----------|-------------|
+| POST | `/api/room` | Create a new room |
+| POST | `/api/room/{code}/join` | Join an existing room |
+| GET | `/api/room/{code}/status` | Poll room status |
+| GET | `/api/room/{code}/events` | SSE stream for room events |
+| GET | `/ws` | WebSocket for game communication |
 
 ## Server Flags
 
@@ -41,10 +72,6 @@ make clean         # Remove build artifacts
 - `-dir` — static files directory (default "web")
 - `-cors` — CORS allowed origin (default "*")
 - `-max-room-age` — stale room cleanup age (default 30m)
-
-## Client URL Parameters
-
-- `?name=YourName` — set player name (default "Player")
 
 ## Controls
 
@@ -60,8 +87,7 @@ Two control schemes active simultaneously — use whichever feels natural:
 - 5 or Space to fire
 - 0 for mine
 
-**Lobby keys**: C=create room, J=join room, 1-0=difficulty, Enter=confirm
-**In-game**: ESC=back/disconnect
+**In-game**: ESC to disconnect
 
 ## Testing
 

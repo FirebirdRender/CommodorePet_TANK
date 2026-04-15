@@ -12,6 +12,7 @@ const (
 	MsgTypeJoinRoom   = "join_room"
 	MsgTypeReady      = "ready"
 	MsgTypePlayAgain  = "play_again"
+	MsgTypeRejoin     = "rejoin"
 
 	MsgTypeRoomCreated  = "room_created"
 	MsgTypeJoined       = "joined"
@@ -63,6 +64,13 @@ type ReadyMsg struct{}
 
 type PlayAgainMsg struct{}
 
+type RejoinMsg struct {
+	RoomCode   string `json:"room_code"`
+	PlayerID   int    `json:"player_id"`
+	Token      string `json:"token"`
+	PlayerName string `json:"player_name"`
+}
+
 // Server → Client messages
 type RoomCreatedMsg struct {
 	RoomCode string `json:"room_code"`
@@ -82,12 +90,14 @@ type GameStartMsg struct {
 }
 
 type TickMsg struct {
-	Tick       uint64           `json:"tick"`
-	Grid       [][]int          `json:"grid"`
-	Tanks      [2]TankState     `json:"tanks"`
-	Shots      []ShotState      `json:"shots"`
-	Mines      []MineState      `json:"mines"`
-	Explosions []ExplosionState `json:"explosions"`
+	Tick            uint64                `json:"tick"`
+	Grid            [][]int               `json:"grid"`
+	Tanks           [2]TankState          `json:"tanks"`
+	Shots           []ShotState           `json:"shots"`
+	Mines           []MineState           `json:"mines"`
+	Explosions      []ExplosionState      `json:"explosions"`
+	BarrelWreckage  []BarrelWreckageState `json:"barrel_wreckage"`
+	BarrelHitBodies [][2]int              `json:"barrel_hit_bodies"`
 }
 
 type RoundOverMsg struct {
@@ -153,6 +163,12 @@ type ExplosionState struct {
 	IsChainReaction bool    `json:"is_chain_reaction"`
 }
 
+type BarrelWreckageState struct {
+	X   int `json:"x"`
+	Y   int `json:"y"`
+	Dir int `json:"dir"`
+}
+
 type CellChange struct {
 	X    int `json:"x"`
 	Y    int `json:"y"`
@@ -160,12 +176,14 @@ type CellChange struct {
 }
 
 type TickDeltaMsg struct {
-	Tick         uint64           `json:"tick"`
-	ChangedCells []CellChange     `json:"changed_cells"`
-	Tanks        [2]TankState     `json:"tanks"`
-	Shots        []ShotState      `json:"shots"`
-	Mines        []MineState      `json:"mines"`
-	Explosions   []ExplosionState `json:"explosions"`
+	Tick            uint64                `json:"tick"`
+	ChangedCells    []CellChange          `json:"changed_cells"`
+	Tanks           [2]TankState          `json:"tanks"`
+	Shots           []ShotState           `json:"shots"`
+	Mines           []MineState           `json:"mines"`
+	Explosions      []ExplosionState      `json:"explosions"`
+	BarrelWreckage  []BarrelWreckageState `json:"barrel_wreckage"`
+	BarrelHitBodies [][2]int              `json:"barrel_hit_bodies"`
 }
 
 var errInvalidMessage = errors.New("missing or empty message type")

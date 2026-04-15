@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TANK! - Game</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
+        #game { display: block; margin: auto; position: absolute; top: 0; bottom: 0; left: 0; right: 0; outline: none; }
+        #focus-btn {
+            display: none;
+            position: fixed;
+            bottom: 8px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 6px 18px;
+            background: #00cc00;
+            color: #000;
+            border: none;
+            font-family: monospace;
+            font-size: 14px;
+            cursor: pointer;
+            z-index: 100;
+        }
+        #focus-btn:hover { background: #00ff00; }
+    </style>
+</head>
+<body>
+    <button id="focus-btn" onclick="refocusCanvas()">CLICK HERE TO PLAY</button>
+    <canvas id="game" width="800" height="480" tabindex="0"></canvas>
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        window.tankConfig = {
+            room: params.get('room') || '',
+            pid: parseInt(params.get('pid') || '0', 10),
+            token: params.get('token') || '',
+            name: params.get('name') || 'Player',
+            serverUrl: (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws'
+        };
+        
+        var canvas = document.getElementById('game');
+        var focusBtn = document.getElementById('focus-btn');
+        
+        // Ensure canvas has focus when page loads
+        setTimeout(function() { canvas.focus(); }, 100);
+        canvas.addEventListener('click', function() {
+            window.focus();
+            canvas.focus();
+            focusBtn.style.display = 'none';
+        });
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden) {
+                focusBtn.style.display = 'block';
+                setTimeout(function() { canvas.focus(); }, 100);
+            }
+        });
+        function refocusCanvas() {
+            window.focus();
+            canvas.focus();
+            focusBtn.style.display = 'none';
+        }
+    </script>
+    <script src="wasm_exec.js"></script>
+    <script>
+        if (!WebAssembly.instantiateStreaming) {
+            WebAssembly.instantiateStreaming = function(promise, importObj) {
+                return promise.then(function(response) { return response.arrayBuffer(); })
+                    .then(function(buffer) { return WebAssembly.instantiate(buffer, importObj); });
+            };
+        }
+        async function load() {
+            try {
+                var go = new Go();
+                var result = await WebAssembly.instantiateStreaming(fetch('game.wasm'), go.importObject);
+                canvas.focus();
+                go.run(result.instance);
+            } catch (err) {
+                document.body.innerHTML = '<div style="color:#f00;font-family:monospace;padding:20px">Error: ' + (err.message || err) + '</div>';
+            }
+        }
+        load();
+    </script>
+</body>
+</html>

@@ -113,7 +113,7 @@ func TestGridFromEngineSmallBoard(t *testing.T) {
 func TestEngineStateConverters(t *testing.T) {
 	tank := &engine.Tank{PlayerID: 1, X: 5, Y: 6, Dir: engine.DirDownRight, Lives: 3, ShotsLeft: 7, MinesLeft: 2, Active: true}
 	shot := &engine.Shot{X: 8, Y: 9, Dir: engine.DirUpLeft, OwnerID: 2, Active: true}
-	mine := &engine.Mine{X: 4, Y: 5, OwnerID: 1, Active: true, PlacedTime: 10.0}
+	mine := &engine.Mine{X: 4, Y: 5, OwnerID: 1, Active: true, Visible: true, PlacedTime: 10.0}
 	explosion := &engine.Explosion{X: 12, Y: 13, Duration: 0.5, IsChainReaction: true}
 
 	gotTank := TankStateFromEngine(tank)
@@ -126,11 +126,13 @@ func TestEngineStateConverters(t *testing.T) {
 		t.Fatalf("ShotStateFromEngine() mismatch: %+v", gotShot)
 	}
 
-	visibleMine := MineStateFromEngine(mine, 11.0)
+	visibleMine := MineStateFromEngine(mine)
 	if !visibleMine.Visible {
 		t.Fatalf("MineStateFromEngine() visibility expected true, got false")
 	}
-	hiddenMine := MineStateFromEngine(mine, 12.1)
+
+	mine.Visible = false
+	hiddenMine := MineStateFromEngine(mine)
 	if hiddenMine.Visible {
 		t.Fatalf("MineStateFromEngine() visibility expected false, got true")
 	}

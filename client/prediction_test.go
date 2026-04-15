@@ -10,32 +10,32 @@ func TestBarrelPredictionResponsiveness(t *testing.T) {
 	gs := NewGameState()
 	gs.Phase = PhasePlaying
 	gs.PlayerID = 1
-	gs.Tanks[0] = TankState{PlayerID: 1, X: 10, Y: 5, Dir: 0, Active: true}  // Dir=0 is "up"
-	gs.Tanks[1] = TankState{PlayerID: 2, X: 30, Y: 15, Dir: 2, Active: true} // Dir=2 is "right"
+	gs.Tanks[0] = TankState{PlayerID: 1, X: 10, Y: 5, Dir: DirUp, Active: true}
+	gs.Tanks[1] = TankState{PlayerID: 2, X: 30, Y: 15, Dir: DirRight, Active: true}
 
-	// Initial direction should be up (Dir=0)
-	if gs.Tanks[0].Dir != 0 {
-		t.Fatalf("initial Dir = %d, want 0 (up)", gs.Tanks[0].Dir)
+	// Initial direction should be up (DirUp)
+	if gs.Tanks[0].Dir != DirUp {
+		t.Fatalf("initial Dir = %d, want %d (up)", gs.Tanks[0].Dir, DirUp)
 	}
 
-	// PredictBarrelDir("right") should immediately change direction to right (Dir=2)
+	// PredictBarrelDir("right") should immediately change direction to right (DirRight)
 	gs.PredictBarrelDir("right")
-	if gs.Tanks[0].Dir != 2 {
-		t.Errorf("after PredictBarrelDir(\"right\"), Dir = %d, want 2 (right)", gs.Tanks[0].Dir)
+	if gs.Tanks[0].Dir != DirRight {
+		t.Errorf("after PredictBarrelDir(\"right\"), Dir = %d, want %d (right)", gs.Tanks[0].Dir, DirRight)
 	}
 
-	// PredictBarrelDir("down") should immediately change direction to down (Dir=4)
+	// PredictBarrelDir("down") should immediately change direction to down (DirDown)
 	gs.PredictBarrelDir("down")
-	if gs.Tanks[0].Dir != 4 {
-		t.Errorf("after PredictBarrelDir(\"down\"), Dir = %d, want 4 (down)", gs.Tanks[0].Dir)
+	if gs.Tanks[0].Dir != DirDown {
+		t.Errorf("after PredictBarrelDir(\"down\"), Dir = %d, want %d (down)", gs.Tanks[0].Dir, DirDown)
 	}
 
 	// Verify PredictedDir map was set
 	if gs.PredictedDir == nil {
 		t.Fatal("PredictedDir map should be initialized after PredictBarrelDir")
 	}
-	if gs.PredictedDir[1] != 4 {
-		t.Errorf("PredictedDir[1] = %d, want 4", gs.PredictedDir[1])
+	if gs.PredictedDir[1] != DirDown {
+		t.Errorf("PredictedDir[1] = %d, want %d", gs.PredictedDir[1], DirDown)
 	}
 }
 
@@ -45,34 +45,30 @@ func TestBarrelPredictionServerOverwrite(t *testing.T) {
 	gs := NewGameState()
 	gs.Phase = PhasePlaying
 	gs.PlayerID = 1
-	gs.Tanks[0] = TankState{PlayerID: 1, X: 10, Y: 5, Dir: 0, Active: true}
+	gs.Tanks[0] = TankState{PlayerID: 1, X: 10, Y: 5, Dir: DirUp, Active: true}
 
-	// Client predicts direction right (Dir=2)
 	gs.PredictBarrelDir("right")
-	if gs.Tanks[0].Dir != 2 {
-		t.Fatalf("prediction setup failed: Dir = %d, want 2", gs.Tanks[0].Dir)
+	if gs.Tanks[0].Dir != DirRight {
+		t.Fatalf("prediction setup failed: Dir = %d, want %d", gs.Tanks[0].Dir, DirRight)
 	}
 
-	// Server sends a TickMsg with direction left (Dir=6)
 	serverTick := TickMsg{
 		Tick: 10,
 		Grid: makeGrid(1, 21, 40),
 		Tanks: [2]TankState{
-			{PlayerID: 1, X: 10, Y: 5, Dir: 6, Active: true}, // Dir=6 is "left"
-			{PlayerID: 2, X: 30, Y: 15, Dir: 2, Active: true},
+			{PlayerID: 1, X: 10, Y: 5, Dir: DirLeft, Active: true},
+			{PlayerID: 2, X: 30, Y: 15, Dir: DirRight, Active: true},
 		},
 		Shots:      nil,
 		Mines:      nil,
 		Explosions: nil,
 	}
 
-	// ApplyTick should overwrite prediction with server value
 	gs.ApplyTick(serverTick)
-	if gs.Tanks[0].Dir != 6 {
-		t.Errorf("after ApplyTick(server Dir=6), Dir = %d, want 6 (left)", gs.Tanks[0].Dir)
+	if gs.Tanks[0].Dir != DirLeft {
+		t.Errorf("after ApplyTick(server DirLeft), Dir = %d, want %d (left)", gs.Tanks[0].Dir, DirLeft)
 	}
 
-	// PredictedDir should be cleared/nil after keyframe (since DirtyCells=nil)
 	if gs.PredictedDir != nil {
 		t.Logf("PredictedDir = %v after keyframe (may be cleared by ApplyTick)", gs.PredictedDir)
 	}
@@ -84,29 +80,26 @@ func TestBarrelPredictionNonDirectionKeys(t *testing.T) {
 	gs := NewGameState()
 	gs.Phase = PhasePlaying
 	gs.PlayerID = 1
-	gs.Tanks[0] = TankState{PlayerID: 1, X: 10, Y: 5, Dir: 0, Active: true}
+	gs.Tanks[0] = TankState{PlayerID: 1, X: 10, Y: 5, Dir: DirUp, Active: true}
 
-	// Predict direction right
 	gs.PredictBarrelDir("right")
-	if gs.Tanks[0].Dir != 2 {
-		t.Fatalf("prediction setup failed: Dir = %d, want 2", gs.Tanks[0].Dir)
+	if gs.Tanks[0].Dir != DirRight {
+		t.Fatalf("prediction setup failed: Dir = %d, want %d", gs.Tanks[0].Dir, DirRight)
 	}
 
-	// Non-direction keys should be ignored (no error, no effect)
 	gs.PredictBarrelDir("fire")
-	if gs.Tanks[0].Dir != 2 {
-		t.Errorf("after PredictBarrelDir(\"fire\"), Dir = %d, want 2 (unchanged)", gs.Tanks[0].Dir)
+	if gs.Tanks[0].Dir != DirRight {
+		t.Errorf("after PredictBarrelDir(\"fire\"), Dir = %d, want %d (unchanged)", gs.Tanks[0].Dir, DirRight)
 	}
 
 	gs.PredictBarrelDir("mine")
-	if gs.Tanks[0].Dir != 2 {
-		t.Errorf("after PredictBarrelDir(\"mine\"), Dir = %d, want 2 (unchanged)", gs.Tanks[0].Dir)
+	if gs.Tanks[0].Dir != DirRight {
+		t.Errorf("after PredictBarrelDir(\"mine\"), Dir = %d, want %d (unchanged)", gs.Tanks[0].Dir, DirRight)
 	}
 
-	// Invalid keys should also be ignored
 	gs.PredictBarrelDir("invalid_key")
-	if gs.Tanks[0].Dir != 2 {
-		t.Errorf("after PredictBarrelDir(\"invalid_key\"), Dir = %d, want 2 (unchanged)", gs.Tanks[0].Dir)
+	if gs.Tanks[0].Dir != DirRight {
+		t.Errorf("after PredictBarrelDir(\"invalid_key\"), Dir = %d, want %d (unchanged)", gs.Tanks[0].Dir, DirRight)
 	}
 }
 
@@ -116,12 +109,11 @@ func TestBarrelPredictionInactiveTank(t *testing.T) {
 	gs := NewGameState()
 	gs.Phase = PhasePlaying
 	gs.PlayerID = 1
-	gs.Tanks[0] = TankState{PlayerID: 1, X: 10, Y: 5, Dir: 0, Active: false}
+	gs.Tanks[0] = TankState{PlayerID: 1, X: 10, Y: 5, Dir: DirUp, Active: false}
 
-	// Prediction should be ignored when tank is inactive
 	gs.PredictBarrelDir("right")
-	if gs.Tanks[0].Dir != 0 {
-		t.Errorf("after PredictBarrelDir on inactive tank, Dir = %d, want 0 (unchanged)", gs.Tanks[0].Dir)
+	if gs.Tanks[0].Dir != DirUp {
+		t.Errorf("after PredictBarrelDir on inactive tank, Dir = %d, want %d (unchanged)", gs.Tanks[0].Dir, DirUp)
 	}
 }
 
@@ -137,8 +129,8 @@ func TestDesyncDetection(t *testing.T) {
 		Tick: 1,
 		Grid: makeGrid(1, 21, 40),
 		Tanks: [2]TankState{
-			{PlayerID: 1, X: 10, Y: 5, Dir: 0, Active: true},
-			{PlayerID: 2, X: 30, Y: 15, Dir: 2, Active: true},
+			{PlayerID: 1, X: 10, Y: 5, Dir: DirUp, Active: true},
+			{PlayerID: 2, X: 30, Y: 15, Dir: DirRight, Active: true},
 		},
 		Shots:      nil,
 		Mines:      nil,
@@ -156,8 +148,8 @@ func TestDesyncDetection(t *testing.T) {
 			{X: 5, Y: 3, Cell: 2},
 		},
 		Tanks: [2]TankState{
-			{PlayerID: 1, X: 10, Y: 5, Dir: 0, Active: true},
-			{PlayerID: 2, X: 30, Y: 15, Dir: 2, Active: true},
+			{PlayerID: 1, X: 10, Y: 5, Dir: DirUp, Active: true},
+			{PlayerID: 2, X: 30, Y: 15, Dir: DirRight, Active: true},
 		},
 		Shots:      nil,
 		Mines:      nil,
@@ -203,7 +195,7 @@ func TestDesyncDetectionWarning(t *testing.T) {
 	keyframe := TickMsg{
 		Tick:       1,
 		Grid:       makeGrid(1, 21, 40),
-		Tanks:      [2]TankState{{PlayerID: 1, X: 10, Y: 5, Dir: 0, Active: true}, {PlayerID: 2, X: 30, Y: 15, Dir: 2, Active: true}},
+		Tanks:      [2]TankState{{PlayerID: 1, X: 10, Y: 5, Dir: DirUp, Active: true}, {PlayerID: 2, X: 30, Y: 15, Dir: DirRight, Active: true}},
 		Shots:      nil,
 		Mines:      nil,
 		Explosions: nil,
@@ -218,7 +210,7 @@ func TestDesyncDetectionWarning(t *testing.T) {
 	delta := TickDeltaMsg{
 		Tick:         2,
 		ChangedCells: []CellChange{{X: 5, Y: 3, Cell: 2}},
-		Tanks:        [2]TankState{{PlayerID: 1, X: 10, Y: 5, Dir: 0, Active: true}, {PlayerID: 2, X: 30, Y: 15, Dir: 2, Active: true}},
+		Tanks:        [2]TankState{{PlayerID: 1, X: 10, Y: 5, Dir: DirUp, Active: true}, {PlayerID: 2, X: 30, Y: 15, Dir: DirRight, Active: true}},
 		Shots:        nil,
 		Mines:        nil,
 		Explosions:   nil,
@@ -264,7 +256,7 @@ func TestDesyncDetectionDirtyCells(t *testing.T) {
 	keyframe := TickMsg{
 		Tick:       1,
 		Grid:       makeGrid(1, 21, 40),
-		Tanks:      [2]TankState{{PlayerID: 1, X: 10, Y: 5, Dir: 0, Active: true}, {PlayerID: 2, X: 30, Y: 15, Dir: 2, Active: true}},
+		Tanks:      [2]TankState{{PlayerID: 1, X: 10, Y: 5, Dir: DirUp, Active: true}, {PlayerID: 2, X: 30, Y: 15, Dir: DirRight, Active: true}},
 		Shots:      nil,
 		Mines:      nil,
 		Explosions: nil,
@@ -326,7 +318,7 @@ func TestDesyncDetectionNoIncrementOnKeyframe(t *testing.T) {
 	keyframe := TickMsg{
 		Tick:       1,
 		Grid:       makeGrid(1, 21, 40),
-		Tanks:      [2]TankState{{PlayerID: 1, X: 10, Y: 5, Dir: 0, Active: true}, {PlayerID: 2, X: 30, Y: 15, Dir: 2, Active: true}},
+		Tanks:      [2]TankState{{PlayerID: 1, X: 10, Y: 5, Dir: DirUp, Active: true}, {PlayerID: 2, X: 30, Y: 15, Dir: DirRight, Active: true}},
 		Shots:      nil,
 		Mines:      nil,
 		Explosions: nil,

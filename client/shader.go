@@ -51,7 +51,7 @@ func initCRTShader() error {
 
 // initOffscreen creates the offscreen buffer for two-step CRT rendering.
 func initOffscreen() {
-	offscreen = ebiten.NewImage(800, 460)
+	offscreen = ebiten.NewImage(800, 480)
 }
 
 // isCRTEnabled returns true if CRT post-processing is enabled.

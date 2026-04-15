@@ -47,15 +47,15 @@ func TestMultipleKeyDownEdgesConsumeFIFOAndClearPending(t *testing.T) {
 	}
 }
 
-func TestHeldKeyContinuousMovement(t *testing.T) {
+func TestHeldKeyNoContinuousMovement(t *testing.T) {
 	tracker := NewInputTracker()
 	tracker.KeyDown(engine.ActionUp)
 
 	if got := tracker.ConsumeAction(); got != engine.ActionUp {
 		t.Fatalf("first ConsumeAction() = %v, want %v", got, engine.ActionUp)
 	}
-	if got := tracker.ConsumeAction(); got != engine.ActionUp {
-		t.Fatalf("second ConsumeAction() = %v, want %v", got, engine.ActionUp)
+	if got := tracker.ConsumeAction(); got != engine.ActionNone {
+		t.Fatalf("second ConsumeAction() = %v, want %v (no continuous movement)", got, engine.ActionNone)
 	}
 }
 
@@ -91,12 +91,12 @@ func TestRepeatSuppression(t *testing.T) {
 	if got := tracker.ConsumeAction(); got != engine.ActionLeft {
 		t.Fatalf("first ConsumeAction() = %v, want %v", got, engine.ActionLeft)
 	}
-	if got := tracker.ConsumeAction(); got != engine.ActionLeft {
-		t.Fatalf("second ConsumeAction() = %v, want held fallback %v", got, engine.ActionLeft)
+	if got := tracker.ConsumeAction(); got != engine.ActionNone {
+		t.Fatalf("second ConsumeAction() = %v, want %v (duplicate suppressed)", got, engine.ActionNone)
 	}
 }
 
-func TestKeyUpRemovesFromHeld(t *testing.T) {
+func TestKeyUpAllowsRekeydown(t *testing.T) {
 	tracker := NewInputTracker()
 	tracker.KeyDown(engine.ActionDown)
 	if got := tracker.ConsumeAction(); got != engine.ActionDown {
@@ -106,6 +106,11 @@ func TestKeyUpRemovesFromHeld(t *testing.T) {
 	tracker.KeyUp(engine.ActionDown)
 	if got := tracker.ConsumeAction(); got != engine.ActionNone {
 		t.Fatalf("ConsumeAction() after KeyUp = %v, want %v", got, engine.ActionNone)
+	}
+
+	tracker.KeyDown(engine.ActionDown)
+	if got := tracker.ConsumeAction(); got != engine.ActionDown {
+		t.Fatalf("ConsumeAction() after re-keydown = %v, want %v", got, engine.ActionDown)
 	}
 }
 

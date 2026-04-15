@@ -4,15 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image/color"
 	"log"
 	"time"
 
 	"github.com/coder/websocket"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/hajimehoshi/ebiten/v2/text/v2"
 )
-
-// GamePhase constants are defined in gamestate.go
 
 type Game struct {
 	state    *GameState
@@ -23,21 +23,23 @@ type Game struct {
 
 	serverURL  string
 	playerName string
-	testMode   bool // enabled via ?test=1 URL parameter for E2E testing
+	playerID   int
+	roomCode   string
+	token      string
 }
 
-func NewGame(serverURL, playerName string, testMode bool) *Game {
+func NewGame(serverURL, playerName string, playerID int, roomCode, token string) *Game {
 	return &Game{
 		state: &GameState{
-			Phase:               PhaseConnecting,
-			DifficultySelection: 5,
-			PlayerName:          playerName,
-			ExplosionTimers:     make(map[[2]int]float64),
-			DirtyCells:          nil,
+			Phase:           PhaseDisconnected,
+			ExplosionTimers: make(map[[2]int]float64),
+			DirtyCells:      nil,
 		},
 		serverURL:  serverURL,
 		playerName: playerName,
-		testMode:   testMode,
+		playerID:   playerID,
+		roomCode:   roomCode,
+		token:      token,
 	}
 }
 
@@ -48,8 +50,6 @@ func (g *Game) ConnectAsync() {
 				backoff := time.Duration(1<<(attempt-1)) * time.Second
 				time.Sleep(backoff)
 			}
-
-			g.network.RetryCount = attempt
 
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			conn, _, err := websocket.Dial(ctx, g.serverURL, nil)
@@ -66,7 +66,6 @@ func (g *Game) ConnectAsync() {
 				go g.network.readLoop()
 				go g.network.writeLoop()
 
-				// Initialize renderer, input, and audio after successful connection
 				if g.renderer == nil {
 					renderer, err := NewRenderer()
 					if err != nil {
@@ -86,19 +85,21 @@ func (g *Game) ConnectAsync() {
 				}
 				initOffscreen()
 
-				g.state.Connected = true
-				g.state.Phase = PhaseLobby
-				g.state.ConnectErr = ""
+				g.network.Send(MsgTypeRejoin, RejoinMsg{
+					RoomCode:   g.roomCode,
+					PlayerID:   g.playerID,
+					Token:      g.token,
+					PlayerName: g.playerName,
+				})
 
-				if g.testMode {
-					g.ExportGameState()
-				}
+				g.state.Connected = true
+				g.state.ConnectErr = ""
 
 				return
 			}
 
 			if attempt < 3 {
-				g.state.ConnectErr = fmt.Sprintf("Connecting... (attempt %d/4)", attempt+1)
+				g.state.ConnectErr = "CONNECTING..."
 			} else {
 				g.state.ConnectErr = "CONNECTION FAILED. PRESS ESC TO EXIT."
 			}
@@ -109,41 +110,42 @@ func (g *Game) ConnectAsync() {
 func (g *Game) Update() error {
 	g.state.AnimTick++
 
-	// ESC behavior depends on current phase:
-	// - Lobby/Connecting: exit game entirely
-	// - Playing: exit to lobby (disconnect)
-	// - Game Over/Rematch: exit to lobby (handled below)
-	// - Disconnected: exit game entirely (nothing to do)
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		g.state.DebugLastKey = "ESC"
+		g.state.DebugKeyCount++
 		switch g.state.Phase {
-		case PhaseConnecting, PhaseDisconnected:
-			return ebiten.Termination
-		case PhaseLobby:
-			if g.state.LobbyMode == LobbyModeJoining {
-				g.state.LobbyMode = LobbyModeStart
-				g.state.RoomCodeInput = ""
-			} else if g.state.LobbyMode == LobbyModeDifficulty {
-				g.state.LobbyMode = LobbyModeStart
-			} else {
-				return ebiten.Termination
-			}
+		case PhaseDisconnected, PhaseGameOver:
+			redirectLobby()
+			// Return error to signal Ebiten to stop the game loop
+			// This prevents the WASM program from continuing after redirect
+			return fmt.Errorf("redirecting to lobby")
 		case PhasePlaying, PhaseRoundOver:
-			g.state.Phase = PhaseLobby
-			g.state.LobbyMode = LobbyModeStart
-			g.state.RoomCode = ""
-			g.state.OpponentName = ""
-			g.state.ErrorMsgText = ""
-			g.state.Winner = 0
-			if g.input != nil {
-				g.input.SetEnabled(false)
-			}
-			if g.network != nil {
-				g.network.Close()
+			if g.state.EscConfirmPending {
+				g.state.Phase = PhaseDisconnected
+				g.state.ErrorMsgText = "DISCONNECTED"
+				g.state.EscConfirmPending = false
+				if g.input != nil {
+					g.input.SetEnabled(false)
+				}
+				if g.network != nil {
+					g.network.Close()
+				}
+			} else {
+				g.state.EscConfirmPending = true
 			}
 		}
 	}
 
-	if g.network == nil && g.state.Phase == PhaseConnecting {
+	if g.state.EscConfirmPending && g.input != nil {
+		for key := range g.input.keyMap {
+			if ebiten.IsKeyPressed(key) && key != ebiten.KeyEscape {
+				g.state.EscConfirmPending = false
+				break
+			}
+		}
+	}
+
+	if g.network == nil {
 		g.network = &Network{
 			Incoming:   make(chan []byte, 256),
 			Outgoing:   make(chan []byte, 256),
@@ -169,14 +171,9 @@ func (g *Game) Update() error {
 		}
 	}
 
-	if g.state.Phase == PhaseLobby {
-		g.handleLobbyInput()
-	}
-
 	if g.state.Phase == PhaseGameOver {
 		if inpututil.IsKeyJustPressed(ebiten.KeyP) {
 			g.network.Send(MsgTypePlayAgain, PlayAgainMsg{})
-			g.state.LobbyMode = LobbyModeRematch
 			g.state.OpponentWantsRematch = false
 		}
 	}
@@ -185,26 +182,16 @@ func (g *Game) Update() error {
 		g.input.Update()
 		events := g.input.PollEdgeEvents()
 		for _, ev := range events {
+			g.state.DebugLastKey = ev.Key
+			g.state.DebugKeyCount++
 			g.network.Send(MsgTypeInput, ev)
 			if ev.Action == "down" {
 				g.state.PredictBarrelDir(ev.Key)
 			}
-			if ev.Action == "up" {
+			if ev.Action == "up" && keyToDir(ev.Key) >= 0 {
 				delete(g.state.PredictedDir, g.state.PlayerID)
 			}
 		}
-		dirs := g.input.PollHeldDirections()
-		for _, dir := range dirs {
-			g.network.Send(MsgTypeInput, InputMsg{
-				Tick:   g.input.tick,
-				Key:    dir,
-				Action: "down",
-			})
-		}
-	}
-
-	if g.testMode && g.state.AnimTick%60 == 0 {
-		g.ExportGameState()
 	}
 
 	return nil
@@ -212,15 +199,6 @@ func (g *Game) Update() error {
 
 func (g *Game) handleMessage(msgType string, payload []byte) {
 	switch msgType {
-	case MsgTypeRoomCreated:
-		var msg RoomCreatedMsg
-		if err := json.Unmarshal(payload, &msg); err != nil {
-			log.Printf("room_created unmarshal error: %v", err)
-			return
-		}
-		g.state.ApplyRoomCreated(msg)
-		g.state.LobbyMode = LobbyModeWaiting
-
 	case MsgTypeJoined:
 		var msg JoinedMsg
 		if err := json.Unmarshal(payload, &msg); err != nil {
@@ -228,7 +206,6 @@ func (g *Game) handleMessage(msgType string, payload []byte) {
 			return
 		}
 		g.state.ApplyJoined(msg)
-		g.state.LobbyMode = LobbyModeWaiting
 
 	case MsgTypeGameStart:
 		var msg GameStartMsg
@@ -237,8 +214,9 @@ func (g *Game) handleMessage(msgType string, payload []byte) {
 			return
 		}
 		g.state.ApplyGameStart(msg)
-		g.input.SetEnabled(true)
-		g.network.Send(MsgTypeReady, ReadyMsg{})
+		if g.input != nil {
+			g.input.SetEnabled(true)
+		}
 
 	case MsgTypeTick:
 		var msg TickMsg
@@ -292,6 +270,9 @@ func (g *Game) handleMessage(msgType string, payload []byte) {
 		}
 		g.state.ApplyError(msg)
 		g.state.ErrorMsgText = msg.Message
+		if msg.Code == "invalid_input" || msg.Code == "room_not_found" || msg.Code == "server_error" {
+			g.state.Phase = PhaseDisconnected
+		}
 
 	case MsgTypeOpponentLeft:
 		g.state.Phase = PhaseDisconnected
@@ -321,93 +302,54 @@ func (g *Game) handleMessage(msgType string, payload []byte) {
 	}
 }
 
-func (g *Game) handleLobbyInput() {
-	switch g.state.LobbyMode {
-	case LobbyModeStart:
-		if inpututil.IsKeyJustPressed(ebiten.KeyC) {
-			g.state.LobbyMode = LobbyModeDifficulty
-			g.state.DifficultySelection = 5
-		} else if inpututil.IsKeyJustPressed(ebiten.KeyJ) {
-			g.state.LobbyMode = LobbyModeJoining
-			g.state.RoomCodeInput = ""
-		}
-
-	case LobbyModeDifficulty:
-		for i := 1; i <= 9; i++ {
-			key := ebiten.Key(int(ebiten.Key1) - 1 + i)
-			if inpututil.IsKeyJustPressed(key) {
-				g.state.DifficultySelection = i
-			}
-		}
-		if inpututil.IsKeyJustPressed(ebiten.Key0) {
-			g.state.DifficultySelection = 10
-		}
-		if inpututil.IsKeyJustPressed(ebiten.KeyUp) {
-			if g.state.DifficultySelection < 10 {
-				g.state.DifficultySelection++
-			}
-		}
-		if inpututil.IsKeyJustPressed(ebiten.KeyDown) {
-			if g.state.DifficultySelection > 1 {
-				g.state.DifficultySelection--
-			}
-		}
-		if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
-			g.state.LobbyMode = LobbyModeCreating
-			g.network.Send(MsgTypeCreateRoom, CreateRoomMsg{
-				Difficulty: g.state.DifficultySelection,
-				PlayerName: g.playerName,
-			})
-		}
-		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
-			g.state.LobbyMode = LobbyModeStart
-		}
-
-	case LobbyModeJoining:
-		for key := ebiten.KeyA; key <= ebiten.KeyZ; key++ {
-			if inpututil.IsKeyJustPressed(key) {
-				if len(g.state.RoomCodeInput) < 4 {
-					g.state.RoomCodeInput += string(rune('A' + (key - ebiten.KeyA)))
-				}
-			}
-		}
-		for key := ebiten.Key0; key <= ebiten.Key9; key++ {
-			if inpututil.IsKeyJustPressed(key) {
-				if len(g.state.RoomCodeInput) < 4 {
-					g.state.RoomCodeInput += string(rune('0' + (key - ebiten.Key0)))
-				}
-			}
-		}
-		if inpututil.IsKeyJustPressed(ebiten.KeyBackspace) {
-			if len(g.state.RoomCodeInput) > 0 {
-				g.state.RoomCodeInput = g.state.RoomCodeInput[:len(g.state.RoomCodeInput)-1]
-			}
-		}
-		if inpututil.IsKeyJustPressed(ebiten.KeyEnter) && len(g.state.RoomCodeInput) == 4 {
-			g.network.Send(MsgTypeJoinRoom, JoinRoomMsg{
-				RoomCode:   g.state.RoomCodeInput,
-				PlayerName: g.playerName,
-			})
-			g.state.LobbyMode = LobbyModeWaiting
-		}
-	}
-}
-
 func (g *Game) Draw(screen *ebiten.Image) {
 	if g.renderer != nil {
 		if isCRTEnabled() {
 			g.renderer.Draw(offscreen, g.state)
 			op := &ebiten.DrawRectShaderOptions{}
 			op.Images[0] = offscreen
-			screen.DrawRectShader(800, 460, crtShader, op)
+			screen.DrawRectShader(800, 480, crtShader, op)
 		} else {
 			g.renderer.Draw(screen, g.state)
 		}
+
+		var barPhase string
+		switch g.state.Phase {
+		case PhasePlaying:
+			barPhase = "PLAY"
+		case PhaseRoundOver:
+			barPhase = "ROUND_OVER"
+		case PhaseGameOver:
+			barPhase = "GAME_OVER"
+		case PhaseDisconnected:
+			barPhase = "DISCONNECTED"
+		default:
+			barPhase = "UNKNOWN"
+		}
+		connStr := "NO"
+		if g.state.Connected {
+			connStr = "YES"
+		}
+		lastKey := g.state.DebugLastKey
+		if lastKey == "" {
+			lastKey = "-"
+		}
+		barText := fmt.Sprintf("PHASE:%s CONN:%s KEYS:%d LAST:%s TICK:%d",
+			barPhase, connStr, g.state.DebugKeyCount, lastKey, g.state.AnimTick)
+
+		debugFace := &text.GoTextFace{
+			Source: g.renderer.hudFace.Source,
+			Size:   12,
+		}
+		debugOp := &text.DrawOptions{}
+		debugOp.GeoM.Translate(4, 464)
+		debugOp.ColorScale.ScaleWithColor(color.RGBA{120, 120, 120, 255})
+		text.Draw(screen, barText, debugFace, debugOp)
 	} else {
 		screen.Fill(ColorBlack)
 	}
 }
 
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
-	return 800, 460
+	return 800, 480
 }
