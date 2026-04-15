@@ -48,13 +48,17 @@ make clean         # Remove build artifacts
 
 ## Controls
 
-- Arrow keys or WASD — move/aim tank
-- Space or Enter — fire
-- M — deploy mine
-- 1-9, 0 — select difficulty (0 = level 10)
-- C — create room
-- J — join room
-- P — play again (after game over)
+Three control schemes are all active simultaneously — use whichever feels natural:
+
+**Arrow keys**: Arrow keys move, Space/Enter fire, M mine
+**WASD**: W/A/S/D move, Space/Enter fire, M mine
+**PET matrix** (original Commodore PET layout):
+- QWE/ASD/ZXC for 8-directional movement (Q=up-left, E=up-right, Z=down-left, C=down-right)
+- S or Space/Enter to fire
+- M to deploy mine
+**Numpad** (original PET Player 2 layout):
+- 789/456/123 for 8-directional movement
+- 5 to fire, 0 for mine
 - ESC — back/disconnect (in game: return to lobby; in lobby: exit)
 
 ## Testing

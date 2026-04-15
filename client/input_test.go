@@ -50,10 +50,9 @@ func TestMapKey(t *testing.T) {
 
 func TestMapKeyUnmapped(t *testing.T) {
 	h := NewInputHandler()
-	// KeyQ is not in our keyMap (it's not a direction or action key)
-	got := h.MapKey(ebiten.KeyQ)
+	got := h.MapKey(ebiten.KeyF1)
 	if got != "" {
-		t.Errorf("MapKey(KeyQ) = %q, want empty string for unmapped key", got)
+		t.Errorf("MapKey(KeyF1) = %q, want empty string for unmapped key", got)
 	}
 }
 
@@ -172,12 +171,16 @@ func TestKeyNamesMatchServerProtocol(t *testing.T) {
 	h := NewInputHandler()
 
 	requiredKeys := map[string]bool{
-		"up":    false,
-		"down":  false,
-		"left":  false,
-		"right": false,
-		"fire":  false,
-		"mine":  false,
+		"up":         false,
+		"down":       false,
+		"left":       false,
+		"right":      false,
+		"up_left":    false,
+		"up_right":   false,
+		"down_left":  false,
+		"down_right": false,
+		"fire":       false,
+		"mine":       false,
 	}
 
 	for _, protoKey := range h.keyMap {
@@ -204,6 +207,54 @@ func TestWASDKeysMapToDirections(t *testing.T) {
 		{ebiten.KeyA, "left"},
 		{ebiten.KeyS, "down"},
 		{ebiten.KeyD, "right"},
+	}
+
+	for _, tc := range tests {
+		got := h.MapKey(tc.key)
+		if got != tc.want {
+			t.Errorf("MapKey(%v) = %q, want %q", tc.key, got, tc.want)
+		}
+	}
+}
+
+func TestPETMatrixKeysMapToDiagonals(t *testing.T) {
+	h := NewInputHandler()
+
+	tests := []struct {
+		key  ebiten.Key
+		want string
+	}{
+		{ebiten.KeyQ, "up_left"},
+		{ebiten.KeyE, "up_right"},
+		{ebiten.KeyZ, "down_left"},
+		{ebiten.KeyC, "down_right"},
+	}
+
+	for _, tc := range tests {
+		got := h.MapKey(tc.key)
+		if got != tc.want {
+			t.Errorf("MapKey(%v) = %q, want %q", tc.key, got, tc.want)
+		}
+	}
+}
+
+func TestNumpadKeysMapToDirections(t *testing.T) {
+	h := NewInputHandler()
+
+	tests := []struct {
+		key  ebiten.Key
+		want string
+	}{
+		{ebiten.KeyNumpad7, "up_left"},
+		{ebiten.KeyNumpad8, "up"},
+		{ebiten.KeyNumpad9, "up_right"},
+		{ebiten.KeyNumpad4, "left"},
+		{ebiten.KeyNumpad6, "right"},
+		{ebiten.KeyNumpad1, "down_left"},
+		{ebiten.KeyNumpad2, "down"},
+		{ebiten.KeyNumpad3, "down_right"},
+		{ebiten.KeyNumpad5, "fire"},
+		{ebiten.KeyNumpad0, "mine"},
 	}
 
 	for _, tc := range tests {

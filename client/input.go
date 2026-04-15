@@ -21,19 +21,49 @@ type InputHandler struct {
 }
 
 // Default key mapping matching the server's KeyToAction function.
-// Arrow keys are primary, WASD are alternatives for directional movement.
+// Three control schemes all active simultaneously:
+//  1. Arrow keys — primary directional controls
+//  2. WASD — WASD gamers' alternative for movement
+//  3. PET matrix (QWE/ASD/ZXC) — original Commodore PET 8-way layout
+//     Q=up_left W=up E=up_right A=left D=right Z=down_left X=down C=down_right
+//     S=fire (center of the matrix)
+//
+// Numpad (789/456/123) also supported as original PET Player 2 layout.
 var defaultKeyMap = map[ebiten.Key]string{
+	// Arrow keys
 	ebiten.KeyUp:    "up",
 	ebiten.KeyDown:  "down",
 	ebiten.KeyLeft:  "left",
 	ebiten.KeyRight: "right",
-	ebiten.KeyW:     "up",
-	ebiten.KeyS:     "down",
-	ebiten.KeyA:     "left",
-	ebiten.KeyD:     "right",
+
+	// WASD
+	ebiten.KeyW: "up",
+	ebiten.KeyA: "left",
+	ebiten.KeyS: "down",
+	ebiten.KeyD: "right",
+
+	// PET matrix (8-way)
+	ebiten.KeyQ: "up_left",
+	ebiten.KeyE: "up_right",
+	ebiten.KeyZ: "down_left",
+	ebiten.KeyC: "down_right",
+
+	// PET matrix fire
 	ebiten.KeySpace: "fire",
-	ebiten.KeyM:     "mine",
 	ebiten.KeyEnter: "fire",
+	ebiten.KeyM:     "mine",
+
+	// Numpad (original PET Player 2 layout)
+	ebiten.KeyNumpad7: "up_left",
+	ebiten.KeyNumpad8: "up",
+	ebiten.KeyNumpad9: "up_right",
+	ebiten.KeyNumpad4: "left",
+	ebiten.KeyNumpad5: "fire",
+	ebiten.KeyNumpad6: "right",
+	ebiten.KeyNumpad1: "down_left",
+	ebiten.KeyNumpad2: "down",
+	ebiten.KeyNumpad3: "down_right",
+	ebiten.KeyNumpad0: "mine",
 }
 
 // NewInputHandler creates a new InputHandler with the default key mapping.
@@ -96,9 +126,10 @@ func (h *InputHandler) PollHeldDirections() []string {
 	seen := make(map[string]bool)
 	var dirs []string
 	for key, protoKey := range h.keyMap {
-		switch protoKey {
-		case "up", "down", "left", "right":
-			if ebiten.IsKeyPressed(key) && !seen[protoKey] {
+		if ebiten.IsKeyPressed(key) && !seen[protoKey] {
+			switch protoKey {
+			case "up", "down", "left", "right",
+				"up_left", "up_right", "down_left", "down_right":
 				seen[protoKey] = true
 				dirs = append(dirs, protoKey)
 			}
