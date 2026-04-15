@@ -20,18 +20,20 @@ type InputHandler struct {
 	enabled bool                  // only send when in Playing phase
 }
 
-// Default key mapping matching the server's KeyToAction function
+// Default key mapping matching the server's KeyToAction function.
+// Arrow keys are primary, WASD are alternatives for directional movement.
 var defaultKeyMap = map[ebiten.Key]string{
 	ebiten.KeyUp:    "up",
 	ebiten.KeyDown:  "down",
 	ebiten.KeyLeft:  "left",
 	ebiten.KeyRight: "right",
+	ebiten.KeyW:     "up",
+	ebiten.KeyS:     "down",
+	ebiten.KeyA:     "left",
+	ebiten.KeyD:     "right",
 	ebiten.KeySpace: "fire",
 	ebiten.KeyM:     "mine",
-	// Diagonals using numpad-style combos are NOT supported in browser WASM
-	// (browser can't detect numpad reliably). Diagonals will be handled
-	// by the server if we send simultaneous cardinal directions.
-	// For now, diagonals are sent as simultaneous directions.
+	ebiten.KeyEnter: "fire",
 }
 
 // NewInputHandler creates a new InputHandler with the default key mapping.
@@ -91,12 +93,13 @@ func (h *InputHandler) PollHeldDirections() []string {
 		return nil
 	}
 
+	seen := make(map[string]bool)
 	var dirs []string
 	for key, protoKey := range h.keyMap {
-		// Only check direction keys (up/down/left/right)
 		switch protoKey {
 		case "up", "down", "left", "right":
-			if ebiten.IsKeyPressed(key) {
+			if ebiten.IsKeyPressed(key) && !seen[protoKey] {
+				seen[protoKey] = true
 				dirs = append(dirs, protoKey)
 			}
 		}

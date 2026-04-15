@@ -50,10 +50,10 @@ func TestMapKey(t *testing.T) {
 
 func TestMapKeyUnmapped(t *testing.T) {
 	h := NewInputHandler()
-	// KeyEnter is not in our keyMap
-	got := h.MapKey(ebiten.KeyEnter)
+	// KeyQ is not in our keyMap (it's not a direction or action key)
+	got := h.MapKey(ebiten.KeyQ)
 	if got != "" {
-		t.Errorf("MapKey(KeyEnter) = %q, want empty string for unmapped key", got)
+		t.Errorf("MapKey(KeyQ) = %q, want empty string for unmapped key", got)
 	}
 }
 
@@ -169,18 +169,8 @@ func TestWrapMessageInput(t *testing.T) {
 }
 
 func TestKeyNamesMatchServerProtocol(t *testing.T) {
-	// Verify that all protocol key names used by the client
-	// match what the server's KeyToAction expects.
-	//
-	// Server expects (from server/protocol.go KeyToAction):
-	// "up", "down", "left", "right", "up_left", "up_right",
-	// "down_left", "down_right", "fire", "mine"
-	//
-	// Client defaultKeyMap provides: up, down, left, right, fire, mine
-
 	h := NewInputHandler()
 
-	// All keys in our keyMap must be recognized by the server
 	requiredKeys := map[string]bool{
 		"up":    false,
 		"down":  false,
@@ -199,6 +189,27 @@ func TestKeyNamesMatchServerProtocol(t *testing.T) {
 	for key, found := range requiredKeys {
 		if !found {
 			t.Errorf("client key %q is not in requiredKeys map", key)
+		}
+	}
+}
+
+func TestWASDKeysMapToDirections(t *testing.T) {
+	h := NewInputHandler()
+
+	tests := []struct {
+		key  ebiten.Key
+		want string
+	}{
+		{ebiten.KeyW, "up"},
+		{ebiten.KeyA, "left"},
+		{ebiten.KeyS, "down"},
+		{ebiten.KeyD, "right"},
+	}
+
+	for _, tc := range tests {
+		got := h.MapKey(tc.key)
+		if got != tc.want {
+			t.Errorf("MapKey(%v) = %q, want %q", tc.key, got, tc.want)
 		}
 	}
 }

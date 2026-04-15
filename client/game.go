@@ -109,8 +109,38 @@ func (g *Game) ConnectAsync() {
 func (g *Game) Update() error {
 	g.state.AnimTick++
 
+	// ESC behavior depends on current phase:
+	// - Lobby/Connecting: exit game entirely
+	// - Playing: exit to lobby (disconnect)
+	// - Game Over/Rematch: exit to lobby (handled below)
+	// - Disconnected: exit game entirely (nothing to do)
 	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
-		return ebiten.Termination
+		switch g.state.Phase {
+		case PhaseConnecting, PhaseDisconnected:
+			return ebiten.Termination
+		case PhaseLobby:
+			if g.state.LobbyMode == LobbyModeJoining {
+				g.state.LobbyMode = LobbyModeStart
+				g.state.RoomCodeInput = ""
+			} else if g.state.LobbyMode == LobbyModeDifficulty {
+				g.state.LobbyMode = LobbyModeStart
+			} else {
+				return ebiten.Termination
+			}
+		case PhasePlaying, PhaseRoundOver:
+			g.state.Phase = PhaseLobby
+			g.state.LobbyMode = LobbyModeStart
+			g.state.RoomCode = ""
+			g.state.OpponentName = ""
+			g.state.ErrorMsgText = ""
+			g.state.Winner = 0
+			if g.input != nil {
+				g.input.SetEnabled(false)
+			}
+			if g.network != nil {
+				g.network.Close()
+			}
+		}
 	}
 
 	if g.network == nil && g.state.Phase == PhaseConnecting {
@@ -148,26 +178,6 @@ func (g *Game) Update() error {
 			g.network.Send(MsgTypePlayAgain, PlayAgainMsg{})
 			g.state.LobbyMode = LobbyModeRematch
 			g.state.OpponentWantsRematch = false
-		}
-		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
-			g.state.Phase = PhaseLobby
-			g.state.LobbyMode = LobbyModeStart
-			g.state.RoomCode = ""
-			g.state.OpponentName = ""
-			g.state.ErrorMsgText = ""
-			g.state.Winner = 0
-			g.network.Close()
-		}
-	}
-
-	if g.state.LobbyMode == LobbyModeRematch {
-		if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
-			g.state.Phase = PhaseLobby
-			g.state.LobbyMode = LobbyModeStart
-			g.state.RoomCode = ""
-			g.state.OpponentName = ""
-			g.state.ErrorMsgText = ""
-			g.state.Winner = 0
 		}
 	}
 

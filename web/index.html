@@ -25,6 +25,7 @@
             bottom: 0;
             left: 0;
             right: 0;
+            outline: none;
         }
         #loading {
             position: absolute;
@@ -69,7 +70,7 @@
     </style>
 </head>
 <body>
-    <canvas id="game" width="800" height="460"></canvas>
+    <canvas id="game" width="800" height="460" tabindex="0"></canvas>
     <div id="loading">LOADING...</div>
     <div id="error"></div>
     <div id="log"></div>
@@ -92,6 +93,10 @@
 
         var urlParams = new URLSearchParams(window.location.search);
         window.playerName = urlParams.get('name') || 'Player';
+
+        canvas.addEventListener('click', function() {
+            canvas.focus();
+        });
 
         function showError(msg) {
             log('ERROR: ' + msg);

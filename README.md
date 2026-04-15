@@ -48,15 +48,14 @@ make clean         # Remove build artifacts
 
 ## Controls
 
-- Arrow keys — move/aim tank
-- Space — fire
+- Arrow keys or WASD — move/aim tank
+- Space or Enter — fire
 - M — deploy mine
 - 1-9, 0 — select difficulty (0 = level 10)
 - C — create room
 - J — join room
-- Enter — confirm
 - P — play again (after game over)
-- ESC — exit/return to lobby
+- ESC — back/disconnect (in game: return to lobby; in lobby: exit)
 
 ## Testing
 
