@@ -156,7 +156,6 @@ func (c *ClientConn) handlePlayAgain(payload []byte) {
 		return
 	}
 
-	// Only allow play_again when room is in RoomGameOver state (or playing but about to end)
 	state := room.GetState()
 	if state != RoomGameOver && state != RoomPlaying {
 		c.sendError(ErrCodeNotReady, fmt.Sprintf("cannot play again in state %d", state))
@@ -165,48 +164,29 @@ func (c *ClientConn) handlePlayAgain(payload []byte) {
 
 	playerID := c.getPlayerID()
 
-	// Mark this player as wanting rematch
-
 	room.SetRematch(playerID)
 
-	// Send acknowledgement with opponent name
 	oppName := c.lookupOpponentName(room, playerID)
 	c.sendOrLog(MsgTypePlayAgainAck, PlayAgainAckMsg{WaitingFor: oppName})
 
-	// Check if both want rematch
 	if !room.BothWantRematch() {
 		return
 	}
 
-	// Both want rematch — reset room state and start new match
 	room.ResetForRematch()
 
-	// Get both connections
 	conns := c.handler.registry.GetClients(room.Code)
 	if conns[0] == nil || conns[1] == nil {
 		c.sendError(ErrCodeServerError, "missing players for rematch")
 		return
 	}
 
-	// Notify both players that rematch is starting
 	conns[0].sendOrLog(MsgTypeRematch, RematchMsg{Difficulty: room.Difficulty})
 	conns[1].sendOrLog(MsgTypeRematch, RematchMsg{Difficulty: room.Difficulty})
 
-	// Remove the old match controller
 	c.handler.registry.RemoveMatch(room.Code)
 
-	// Create new match controller (same difficulty, new seed)
-	bridge := &RoomBridge{clients: conns}
-	mc := NewMatchController(room.Difficulty, time.Now().UnixNano(), bridge)
-	c.handler.registry.SetMatchIfEmpty(room.Code, mc)
-
-	room.SetState(RoomPlaying)
-	conns[0].setMatch(mc)
-	conns[1].setMatch(mc)
-
-	conns[0].sendOrLog(MsgTypeGameStart, mc.GameStartState(1))
-	conns[1].sendOrLog(MsgTypeGameStart, mc.GameStartState(2))
-	mc.Start()
+	c.startMatchForRoom(room)
 }
 
 func (c *ClientConn) handleCreateRoom(payload []byte) {
@@ -308,12 +288,21 @@ func (c *ClientConn) handleJoinRoom(payload []byte) {
 	if otherConn != nil {
 		otherConn.sendOrLog(MsgTypeJoined, JoinedMsg{RoomCode: room.Code, PlayerID: otherPlayerID(playerID), OpponentName: msg.PlayerName})
 	}
+
+	if room.BothPlayersConnected() {
+		c.startMatchForRoom(room)
+	}
 }
 
 func (c *ClientConn) handleReady(payload []byte) {
 	room := c.getRoom()
 	if room == nil {
 		c.sendError(ErrCodeNotReady, "not in room")
+		return
+	}
+
+	// If match already started (auto-start on join), this is a no-op
+	if room.GetState() == RoomPlaying || room.GetState() == RoomGameOver {
 		return
 	}
 
@@ -326,41 +315,14 @@ func (c *ClientConn) handleReady(payload []byte) {
 	}
 
 	if err := room.SetReady(c.getPlayerID()); err != nil {
-		c.sendError(ErrCodeNotReady, err.Error())
 		return
 	}
 
 	if !room.BothReady() {
 		return
 	}
-	if existing := c.handler.registry.GetMatch(room.Code); existing != nil {
-		c.setMatch(existing)
-		return
-	}
 
-	conns := c.handler.registry.GetClients(room.Code)
-	if conns[0] == nil || conns[1] == nil {
-		c.sendError(ErrCodeServerError, "missing players")
-		return
-	}
-
-	bridge := &RoomBridge{clients: conns}
-	mc := NewMatchController(room.Difficulty, time.Now().UnixNano(), bridge)
-	if !c.handler.registry.SetMatchIfEmpty(room.Code, mc) {
-		mc = c.handler.registry.GetMatch(room.Code)
-	}
-	if mc == nil {
-		c.sendError(ErrCodeServerError, "failed to start match")
-		return
-	}
-
-	room.SetState(RoomPlaying)
-	conns[0].setMatch(mc)
-	conns[1].setMatch(mc)
-
-	conns[0].sendOrLog(MsgTypeGameStart, mc.GameStartState(1))
-	conns[1].sendOrLog(MsgTypeGameStart, mc.GameStartState(2))
-	mc.Start()
+	c.startMatchForRoom(room)
 }
 
 func (c *ClientConn) handleInput(payload []byte) {
@@ -683,4 +645,35 @@ func otherPlayerID(playerID int) int {
 	default:
 		return 0
 	}
+}
+
+func (c *ClientConn) startMatchForRoom(room *Room) {
+	conns := c.handler.registry.GetClients(room.Code)
+	if conns[0] == nil || conns[1] == nil {
+		c.sendError(ErrCodeServerError, "missing players")
+		return
+	}
+
+	existing := c.handler.registry.GetMatch(room.Code)
+	if existing != nil {
+		return
+	}
+
+	bridge := &RoomBridge{clients: conns}
+	mc := NewMatchController(room.Difficulty, time.Now().UnixNano(), bridge)
+	if !c.handler.registry.SetMatchIfEmpty(room.Code, mc) {
+		mc = c.handler.registry.GetMatch(room.Code)
+	}
+	if mc == nil {
+		c.sendError(ErrCodeServerError, "failed to start match")
+		return
+	}
+
+	room.SetState(RoomPlaying)
+	conns[0].setMatch(mc)
+	conns[1].setMatch(mc)
+
+	conns[0].sendOrLog(MsgTypeGameStart, mc.GameStartState(1))
+	conns[1].sendOrLog(MsgTypeGameStart, mc.GameStartState(2))
+	mc.Start()
 }

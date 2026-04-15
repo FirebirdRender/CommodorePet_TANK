@@ -129,6 +129,107 @@ func TestDifficultySelection(t *testing.T) {
 	}
 }
 
+func TestAutoStartOnJoin(t *testing.T) {
+	srv, _ := setupTestServer(t)
+	defer srv.Close()
+
+	c1 := newE2EClient(t, srv.URL)
+	c2 := newE2EClient(t, srv.URL)
+	defer c1.closeNow()
+	defer c2.closeNow()
+
+	c1.send(MsgTypeCreateRoom, CreateRoomMsg{Difficulty: 5, PlayerName: "Alice"})
+	roomCreated := decodeRaw[RoomCreatedMsg](t, c1.recvExpect(MsgTypeRoomCreated))
+	if roomCreated.RoomCode == "" {
+		t.Fatal("expected non-empty room code")
+	}
+
+	_ = decodeRaw[JoinedMsg](t, c1.recvExpect(MsgTypeJoined))
+
+	c2.send(MsgTypeJoinRoom, JoinRoomMsg{RoomCode: roomCreated.RoomCode, PlayerName: "Bob"})
+	joined2 := decodeRaw[JoinedMsg](t, c2.recvExpect(MsgTypeJoined))
+	if joined2.PlayerID != 2 {
+		t.Fatalf("joiner player_id = %d, want 2", joined2.PlayerID)
+	}
+
+	hostJoined := decodeRaw[JoinedMsg](t, c1.recvUntil(MsgTypeJoined, 10))
+	if hostJoined.OpponentName != "Bob" {
+		t.Fatalf("host opponent = %q, want 'Bob'", hostJoined.OpponentName)
+	}
+
+	gs1 := decodeRaw[GameStartMsg](t, c1.recvUntil(MsgTypeGameStart, 30))
+	gs2 := decodeRaw[GameStartMsg](t, c2.recvUntil(MsgTypeGameStart, 30))
+
+	requireGridShape(t, gs1.Grid, 21, 40)
+	requireGridShape(t, gs2.Grid, 21, 40)
+
+	if gs1.YourPlayerID != 1 {
+		t.Errorf("gs1.YourPlayerID = %d, want 1", gs1.YourPlayerID)
+	}
+	if gs2.YourPlayerID != 2 {
+		t.Errorf("gs2.YourPlayerID = %d, want 2", gs2.YourPlayerID)
+	}
+
+	msgType, _, err := c1.recvWithTimeout(3 * time.Second)
+	if err != nil {
+		t.Fatalf("expected tick within 3s, got error: %v", err)
+	}
+	if msgType != MsgTypeTick && msgType != MsgTypeTickDelta {
+		t.Errorf("expected tick or tick_delta, got %s", msgType)
+	}
+}
+
+func TestInputAffectsTankPosition(t *testing.T) {
+	srv, _ := setupTestServer(t)
+	defer srv.Close()
+
+	c1, c2, _, start1, _ := setupStartedMatch(t, srv.URL, 5, "Alice", "Bob")
+	defer c1.closeNow()
+	defer c2.closeNow()
+
+	p1Initial := findTankByPlayerID(t, start1.Tanks, 1)
+
+	c1.send(MsgTypeInput, InputMsg{Tick: 1, Key: "right", Action: "down"})
+
+	maxReads := 30
+	var foundMoved bool
+	for i := 0; i < maxReads; i++ {
+		msgType, payload, err := c1.recvWithTimeout(2 * time.Second)
+		if err != nil {
+			t.Fatalf("recv failed at read %d: %v", i, err)
+		}
+
+		if msgType == MsgTypeTick {
+			var tick TickMsg
+			if err := json.Unmarshal(payload, &tick); err != nil {
+				continue
+			}
+			p1 := findTankByPlayerID(t, tick.Tanks, 1)
+			if p1.X != p1Initial.X || p1.Y != p1Initial.Y {
+				foundMoved = true
+				break
+			}
+		} else if msgType == MsgTypeTickDelta {
+			var delta TickDeltaMsg
+			if err := json.Unmarshal(payload, &delta); err != nil {
+				continue
+			}
+			p1 := findTankByPlayerID(t, delta.Tanks, 1)
+			if p1.X != p1Initial.X || p1.Y != p1Initial.Y {
+				foundMoved = true
+				break
+			}
+		} else if msgType == MsgTypeRoundOver || msgType == MsgTypeGameOver {
+			break
+		}
+	}
+
+	if !foundMoved {
+		t.Error("P1 tank never moved after right input (may need more ticks)")
+	}
+	_ = c2
+}
+
 func TestRoomExpiry(t *testing.T) {
 	hub := NewHub()
 

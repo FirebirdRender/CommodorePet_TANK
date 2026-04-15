@@ -1,5 +1,17 @@
 ## Changelog
 
+### Wave 7.1: Auto-Start Bug Fix & Headless E2E (April 14, 2026)
+
+Server
+- **Bug Fix: Auto-start match when both players join.** The server previously required explicit `ready` messages from both clients before sending `game_start`, but the WASM client only sent `ready` after receiving `game_start` — creating a deadlock where both screens showed "ROOM: XXXX - VS Player" indefinitely. Now the match starts automatically when P2 joins, making the `ready` handshake optional/idempotent.
+- **`startMatchForRoom()`**: Extracted shared match-start logic from `handleReady` and `handlePlayAgain` into a reusable method. Both join and rematch paths use it.
+- **`BothPlayersConnected()`**: New `Room` method to check if both player slots are filled with connected players.
+- **`handleReady` is idempotent**: If a match already started (room state `RoomPlaying`), `handleReady` silently returns — no error, no duplicate match.
+
+Tests
+- **`TestAutoStartOnJoin`**: Headless E2E test verifying that create room → join room → match auto-starts without `ready` messages. Validates game state, grid dimensions, player IDs, and tick reception.
+- **`TestInputAffectsTankPosition`**: Headless E2E test that creates a match, sends movement input, and verifies the tank position changes in tick messages.
+
 ### Wave 7: Testing & E2E Infrastructure (April 14, 2026)
 
 Client

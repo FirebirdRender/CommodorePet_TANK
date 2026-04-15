@@ -141,6 +141,15 @@ func (r *Room) BothReady() bool {
 	return p1 != nil && p2 != nil && p1.Connected && p2.Connected && p1.Ready && p2.Ready
 }
 
+func (r *Room) BothPlayersConnected() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	p1 := r.Players[0]
+	p2 := r.Players[1]
+	return p1 != nil && p2 != nil && p1.Connected && p2.Connected
+}
+
 func (r *Room) PlayerCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
