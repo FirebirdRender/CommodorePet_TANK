@@ -63,7 +63,12 @@ const (
 	MoveDelayMin        = 0.2
 	ShotDelay           = 0.1
 	MineVisibleDuration = 2.0
-	FPS                 = 60
+	// MineArmDelay: seconds the layer must be off the mine cell before the
+	// mine becomes armed (and detonable on contact). Until armed, the mine is
+	// inert and cannot kill the layer who just placed it. [priority 3:
+	// non-obvious gameplay constant; explains why this value matters]
+	MineArmDelay = 2.0
+	FPS          = 60
 
 	SpawnX1 = 2
 	SpawnY1 = 10

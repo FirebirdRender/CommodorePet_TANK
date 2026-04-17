@@ -1,5 +1,33 @@
 ## Changelog
 
+### 0.9.7.1 - 2026-04-17 — Mine arming delay (2-second fuse)
+
+**Bugfix.** Laying a mine immediately exploded under the layer because `ResolveTankMineCollision` only gated on `mine.Active`, and `NewMine` set `Active=true` at placement. There was no arming delay at all — the visible-duration timer (`MineVisibleDuration`) was a separate concern that only controlled board-cell rendering, not detonation.
+
+**New semantics (Strict):**
+
+- A mine is **inert** at placement.
+- The arming timer starts the **first** tick the layer's tank leaves the mine cell.
+- After `MineArmDelay = 2.0` seconds, the mine becomes **armed** and **invisible** (`Visible=false`, board cell cleared from `CellMine`).
+- Once armed, the mine **never re-disarms** — even if the layer returns to the cell, it detonates.
+- Chain reactions (mine adjacent to another exploding mine) still ignore the arm gate (intentional — explosion damage propagates regardless of arm state).
+
+**Implementation:**
+
+- `engine/constants.go` — added `MineArmDelay = 2.0`.
+- `engine/projectile.go` — `Mine.ArmedTime float64` field (0 = not yet armed) + `IsArmed(simTime) bool` method.
+- `engine/mine_explosion.go` — `ResolveTankMineCollision` now gated on `mine.IsArmed(gc.SimTime)`.
+- `engine/game.go` — `updateMines` sets `ArmedTime = SimTime + MineArmDelay` the first tick the owner is off the cell; once armed, forces `Visible=false` and clears `CellMine` from the board.
+
+**Tests added (`engine/mine_explosion_test.go`):**
+
+- `TestMine_NoExplodeOnLayer` — fresh mine + tank stands on it → no explosion, mine still active.
+- `TestMine_ArmsAfterDelayOnceLayerLeaves` — owner steps off, simulate forward → ArmedTime set on first off-tick, mine armed after `MineArmDelay`.
+- `TestMine_StaysDisarmedWhileLayerOnCell` — owner stays on for 5s → ArmedTime still 0, never armed.
+- `TestMine_InvisibleAfterArming` — once armed, board cell is `CellEmpty`, `mine.Visible=false`.
+
+**Tests updated:** `TestResolveTankMineCollision_*` (3 tests) and `TestApplyInput_MoveTriggersMineCheck` now pre-arm via explicit `ArmedTime` + `gc.SimTime`. `TestGolden_MineTankStepOn` now steps P1 off the mine cell and waits 130 ticks (>2s @ 60 FPS) before P2 walks onto it.
+
 ### 0.9.7 - 2026-04-17 — Phase 6 G-1: Protocol versioning on the wire
 
 **Closes Phase 6 gap G-1.** External bot SDK consumers had no way to detect a protocol drift between their version and the live server — silent breakage was possible across server upgrades. This release stamps a `protocol_version` field on every server-issued `joined`/`rejoin_ack` payload and accepts an optional `client_protocol_version` on `join_room`/`rejoin` payloads.

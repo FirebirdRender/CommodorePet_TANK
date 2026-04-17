@@ -329,19 +329,32 @@ func (gc *GameController) updateShots() {
 
 func (gc *GameController) updateMines() {
 	for _, mine := range gc.Mines {
-		if mine.Active {
-			ownerTank := gc.Tanks[mine.OwnerID-1]
-			if ownerTank.Active && ownerTank.X == mine.X && ownerTank.Y == mine.Y {
-				mine.VisibleStartTime = gc.SimTime
-				if !mine.Visible {
-					mine.Visible = true
-					if gc.Board.InBounds(mine.X, mine.Y) && gc.Board.GetCell(mine.X, mine.Y) == CellEmpty {
-						gc.Board.SetCellType(mine.X, mine.Y, CellMine)
-					}
+		if !mine.Active {
+			continue
+		}
+		ownerTank := gc.Tanks[mine.OwnerID-1]
+		ownerOnCell := ownerTank.Active && ownerTank.X == mine.X && ownerTank.Y == mine.Y
+
+		if ownerOnCell {
+			mine.VisibleStartTime = gc.SimTime
+			if !mine.Visible {
+				mine.Visible = true
+				if gc.Board.InBounds(mine.X, mine.Y) && gc.Board.GetCell(mine.X, mine.Y) == CellEmpty {
+					gc.Board.SetCellType(mine.X, mine.Y, CellMine)
 				}
 			}
-			mine.UpdateVisibility(gc.SimTime, gc.Board)
+		} else if mine.ArmedTime == 0 {
+			mine.ArmedTime = gc.SimTime + MineArmDelay
 		}
+
+		if mine.IsArmed(gc.SimTime) && mine.Visible {
+			mine.Visible = false
+			if gc.Board.InBounds(mine.X, mine.Y) && gc.Board.GetCell(mine.X, mine.Y) == CellMine {
+				gc.Board.SetCellType(mine.X, mine.Y, CellEmpty)
+			}
+		}
+
+		mine.UpdateVisibility(gc.SimTime, gc.Board)
 	}
 }
 

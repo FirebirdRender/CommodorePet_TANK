@@ -203,7 +203,10 @@ func TestResolveTankMineCollision_MineUnderTank(t *testing.T) {
 	tk.OccupyBoard(gc.Board)
 
 	gc.Board.SetCellType(20, 10, CellMine)
-	gc.Mines = []*Mine{{X: 20, Y: 10, Active: true}}
+	// Priority 3: pre-arm by setting SimTime past ArmedTime; without this the
+	// new arming gate (0.9.7.1) treats the mine as inert.
+	gc.SimTime = 1.0
+	gc.Mines = []*Mine{{X: 20, Y: 10, Active: true, ArmedTime: 0.5}}
 
 	gc.ResolveTankMineCollision(tk)
 
@@ -226,7 +229,8 @@ func TestResolveTankMineCollision_NoMine(t *testing.T) {
 	tk := gc.Tanks[0]
 	startLives := tk.Lives
 
-	gc.Mines = []*Mine{{X: tk.X + 1, Y: tk.Y, Active: true}}
+	gc.SimTime = 1.0
+	gc.Mines = []*Mine{{X: tk.X + 1, Y: tk.Y, Active: true, ArmedTime: 0.5}}
 	gc.ResolveTankMineCollision(tk)
 
 	if tk.Lives != startLives {
@@ -248,7 +252,8 @@ func TestResolveTankMineCollision_TankHitFirst(t *testing.T) {
 	tk.OccupyBoard(gc.Board)
 
 	gc.Board.SetCellType(20, 10, CellMine)
-	gc.Mines = []*Mine{{X: 20, Y: 10, Active: true}}
+	gc.SimTime = 1.0
+	gc.Mines = []*Mine{{X: 20, Y: 10, Active: true, ArmedTime: 0.5}}
 
 	gc.ResolveTankMineCollision(tk)
 
@@ -258,5 +263,98 @@ func TestResolveTankMineCollision_TankHitFirst(t *testing.T) {
 		if got := gc.Board.GetCell(p[0], p[1]); got != CellEmpty {
 			t.Fatalf("corner %v should be cleared by post-hit explosion (hit-first order): got %v want CellEmpty", p, got)
 		}
+	}
+}
+
+func TestMine_NoExplodeOnLayer(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	tk := gc.Tanks[0]
+	startLives := tk.Lives
+
+	m := NewMine(tk.X, tk.Y, tk.PlayerID, 0)
+	gc.Mines = []*Mine{m}
+	gc.Board.SetCellType(tk.X, tk.Y, CellMine)
+
+	gc.ResolveTankMineCollision(tk)
+
+	if tk.Lives != startLives {
+		t.Fatalf("freshly placed mine must not explode under layer: lives=%d want %d", tk.Lives, startLives)
+	}
+	if !m.Active {
+		t.Fatal("inert mine should remain active (placed but not yet armed)")
+	}
+}
+
+func TestMine_ArmsAfterDelayOnceLayerLeaves(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	owner := gc.Tanks[0]
+	mineX, mineY := owner.X, owner.Y
+	m := NewMine(mineX, mineY, owner.PlayerID, 0)
+	gc.Mines = []*Mine{m}
+	gc.Board.SetCellType(mineX, mineY, CellMine)
+
+	owner.ClearFromBoard(gc.Board)
+	owner.X, owner.Y = mineX+5, mineY
+	owner.OccupyBoard(gc.Board)
+
+	gc.Update(1.0 / FPS)
+	if m.ArmedTime == 0 {
+		t.Fatal("ArmedTime should be set on first tick after layer leaves")
+	}
+	if m.IsArmed(gc.SimTime) {
+		t.Fatal("mine should still be inert before MineArmDelay elapses")
+	}
+
+	for i := 0; i < int(FPS*MineArmDelay)+5; i++ {
+		gc.Update(1.0 / FPS)
+	}
+	if !m.IsArmed(gc.SimTime) {
+		t.Fatalf("mine should be armed once SimTime passes ArmedTime: armed_at=%v sim=%v", m.ArmedTime, gc.SimTime)
+	}
+}
+
+func TestMine_StaysDisarmedWhileLayerOnCell(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	owner := gc.Tanks[0]
+	m := NewMine(owner.X, owner.Y, owner.PlayerID, 0)
+	gc.Mines = []*Mine{m}
+	gc.Board.SetCellType(owner.X, owner.Y, CellMine)
+
+	for i := 0; i < 300; i++ {
+		gc.Update(1.0 / FPS)
+	}
+
+	if m.ArmedTime != 0 {
+		t.Fatalf("ArmedTime must remain 0 while layer stays on cell: got %v", m.ArmedTime)
+	}
+	if m.IsArmed(gc.SimTime) {
+		t.Fatal("mine must not be armed while layer is still on the cell")
+	}
+}
+
+func TestMine_InvisibleAfterArming(t *testing.T) {
+	gc := newTestGCClearBoard(5)
+	owner := gc.Tanks[0]
+	mineX, mineY := owner.X, owner.Y
+	m := NewMine(mineX, mineY, owner.PlayerID, 0)
+	gc.Mines = []*Mine{m}
+	gc.Board.SetCellType(mineX, mineY, CellMine)
+
+	owner.ClearFromBoard(gc.Board)
+	owner.X, owner.Y = mineX+5, mineY
+	owner.OccupyBoard(gc.Board)
+
+	for i := 0; i < int(FPS*(MineArmDelay+1.0)); i++ {
+		gc.Update(1.0 / FPS)
+	}
+
+	if !m.IsArmed(gc.SimTime) {
+		t.Fatalf("mine should be armed: ArmedTime=%v SimTime=%v", m.ArmedTime, gc.SimTime)
+	}
+	if m.Visible {
+		t.Fatal("armed mine must be invisible")
+	}
+	if got := gc.Board.GetCell(mineX, mineY); got == CellMine {
+		t.Fatalf("armed mine must not be marked as CellMine on board: got %v", got)
 	}
 }

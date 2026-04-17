@@ -67,11 +67,13 @@ func (gc *GameController) ExplodeMine(mx, my int, radius int, isChain bool) {
 	}
 }
 
-// ResolveTankMineCollision checks if a tank is standing on an active mine.
-// If yes: TankHit first, then ExplodeMine with default radius=1.
+// ResolveTankMineCollision checks if a tank is standing on an armed mine.
+// Unarmed mines (just placed, layer hasn't moved off long enough) are inert
+// and do not trigger explosions. If a tank stands on an armed mine: TankHit
+// first, then ExplodeMine with default radius=1.
 func (gc *GameController) ResolveTankMineCollision(tank *Tank) {
 	for _, mine := range gc.Mines {
-		if mine.Active && mine.X == tank.X && mine.Y == tank.Y {
+		if mine.Active && mine.IsArmed(gc.SimTime) && mine.X == tank.X && mine.Y == tank.Y {
 			gc.TankHit(tank, [2]int{tank.X, tank.Y})
 			mine.Active = false
 			gc.ExplodeMine(mine.X, mine.Y, 1, false)

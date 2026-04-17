@@ -210,8 +210,14 @@ func TestGolden_MineTankStepOn(t *testing.T) {
 	m := gc.Mines[0]
 	startLives := gc.Tanks[1].Lives
 
+	// P1 must step off the mine cell so the arming timer can start
+	// (post-0.9.7.1: mine is inert while the layer remains on it).
+	gc.ApplyInput(1, ActionUp)
+
 	gc.ApplyInput(2, ActionLeft)
-	stepTicks(gc, 20)
+	// Wait past MineArmDelay (2s @ 60 FPS = 120 ticks) so the mine arms after
+	// player 1 left the cell, before player 2 steps onto it.
+	stepTicks(gc, 130)
 	gc.ApplyInput(2, ActionLeft)
 	ok := runUntil(gc, 120, func() bool { return gc.Tanks[1].Lives == startLives-1 })
 	if !ok {

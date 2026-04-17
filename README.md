@@ -4,7 +4,7 @@ Faithful recreation of the Commodore PET TANK! game with networked multiplayer v
 
 ## Version
 
-Current: **0.9.7** (Phase 6 G-1 — Protocol versioning on the wire)
+Current: **0.9.7.1** (Mine arming delay — 2s fuse after layer leaves cell)
 
 ## Quick Start
 

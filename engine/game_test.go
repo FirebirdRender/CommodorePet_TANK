@@ -1004,6 +1004,9 @@ func TestApplyInput_MoveTriggersMineCheck(t *testing.T) {
 	t1.OccupyBoard(gc.Board)
 	mx, my := 21, 10
 	m := NewMine(mx, my, 2, 0)
+	// Pre-arm: this test simulates stepping onto an already-armed enemy mine.
+	gc.SimTime = 1.0
+	m.ArmedTime = 0.5
 	gc.Mines = []*Mine{m}
 	gc.Board.SetCellType(mx, my, CellMine)
 

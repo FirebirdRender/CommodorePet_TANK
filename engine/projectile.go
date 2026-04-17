@@ -102,6 +102,12 @@ type Mine struct {
 	Visible          bool
 	VisibleStartTime float64
 	PlacedTime       float64
+	// ArmedTime is the sim time when this mine becomes detonable on contact.
+	// Zero means "not yet armed" (owner has not stepped off the cell long
+	// enough). Non-zero means armed at simTime >= ArmedTime. See IsArmed.
+	// [priority 3: encodes a non-obvious 2-state arming protocol that
+	// determines whether ResolveTankMineCollision triggers an explosion]
+	ArmedTime float64
 }
 
 func NewMine(x, y, ownerID int, placedTime float64) *Mine {
@@ -113,7 +119,15 @@ func NewMine(x, y, ownerID int, placedTime float64) *Mine {
 		Visible:          true,
 		VisibleStartTime: placedTime,
 		PlacedTime:       placedTime,
+		ArmedTime:        0,
 	}
+}
+
+// IsArmed reports whether the mine is currently armed and will detonate on
+// tank contact. A mine is armed once the layer has been off the cell for
+// MineArmDelay seconds; until then it is inert.
+func (m *Mine) IsArmed(simTime float64) bool {
+	return m.ArmedTime > 0 && simTime >= m.ArmedTime
 }
 
 func (m *Mine) UpdateVisibility(simTime float64, b *Board) {
