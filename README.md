@@ -4,7 +4,7 @@ Faithful recreation of the Commodore PET TANK! game with networked multiplayer v
 
 ## Version
 
-Current: **0.9.6** (Wave 9 - Bot AI: own-barrel LOS exception — fire-when-aligned fix)
+Current: **0.9.6.1** (Phase 6 baseline — Engine: spawn wall-lock fix)
 
 ## Quick Start
 

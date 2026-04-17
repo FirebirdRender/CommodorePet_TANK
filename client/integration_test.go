@@ -251,47 +251,56 @@ func TestClientInputAffectsState(t *testing.T) {
 	gsPayload := waitForMsg(c1, MsgTypeGameStart, 5*time.Second)
 	var gs GameStartMsg
 	json.Unmarshal(gsPayload, &gs)
-	startTank := gs.Tanks[0]
-
-	// Drain initial ticks
-	for i := 0; i < 5; i++ {
-		payload := waitForMsg(c1, MsgTypeTick, 2*time.Second)
-		if payload == nil {
+	// Locate player 1's spawn explicitly: Tanks[0] is conventionally P1, but read by ID to be safe.
+	var startX, startY int
+	var foundStart bool
+	for _, tank := range gs.Tanks {
+		if tank.PlayerID == 1 {
+			startX, startY = tank.X, tank.Y
+			foundStart = true
 			break
 		}
 	}
-
-	// Send movement inputs for player 1
-	for tick := uint64(1); tick <= 10; tick++ {
-		c1.Send(MsgTypeInput, InputMsg{Tick: tick, Key: "right", Action: "down"})
+	if !foundStart {
+		t.Fatal("game_start did not include player 1 tank")
 	}
 
-	// Wait for ticks and check if tank moved
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	deadline, _ := ctx.Deadline()
+	// Try each of the 8 directions in turn — terrain seed is non-deterministic
+	// (server uses time.Now().UnixNano()), so any single direction may be blocked
+	// by a spawn-adjacent wall. Per PET semantics, key must be released before a
+	// fresh down event re-queues the action (server input tracker dedupes held keys).
+	// Each direction gets its own 1s budget so a slow early attempt cannot starve
+	// later ones. Mirrors the proven pattern in server/e2e_test.go:TestE2EInputAffectsState.
+	keys := []string{"right", "down", "left", "up", "up_right", "down_right", "down_left", "up_left"}
 	moved := false
-	for time.Now().Before(deadline) {
-		payload := waitForMsg(c1, MsgTypeTick, 1*time.Second)
-		if payload == nil {
-			break
-		}
-		var tick TickMsg
-		json.Unmarshal(payload, &tick)
-		for _, tank := range tick.Tanks {
-			if tank.PlayerID == 1 {
-				if tank.X != startTank.X {
+
+	for _, key := range keys {
+		c1.Send(MsgTypeInput, InputMsg{Tick: 1, Key: key, Action: "down"})
+		dirDeadline := time.Now().Add(1 * time.Second)
+		for time.Now().Before(dirDeadline) {
+			payload := waitForMsg(c1, MsgTypeTick, 200*time.Millisecond)
+			if payload == nil {
+				continue
+			}
+			var tick TickMsg
+			json.Unmarshal(payload, &tick)
+			for _, tank := range tick.Tanks {
+				if tank.PlayerID == 1 && (tank.X != startX || tank.Y != startY) {
 					moved = true
 					break
 				}
 			}
+			if moved {
+				break
+			}
 		}
+		c1.Send(MsgTypeInput, InputMsg{Tick: 1, Key: key, Action: "up"})
 		if moved {
 			break
 		}
 	}
 	if !moved {
-		t.Errorf("player 1 tank did not move from x=%d after input", startTank.X)
+		t.Errorf("player 1 tank did not move from (%d,%d) after trying all 8 directions", startX, startY)
 	}
 }
 

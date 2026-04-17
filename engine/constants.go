@@ -64,6 +64,11 @@ const (
 	ShotDelay           = 0.1
 	MineVisibleDuration = 2.0
 	FPS                 = 60
+
+	SpawnX1 = 2
+	SpawnY1 = 10
+	SpawnX2 = BoardWidth - 3
+	SpawnY2 = 10
 )
 
 type Action int

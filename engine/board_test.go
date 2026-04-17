@@ -60,6 +60,25 @@ func TestNewBoard_SpawnZonesCleared(t *testing.T) {
 	}
 }
 
+func TestNewBoard_SpawnNeighborsClearAcrossSeeds(t *testing.T) {
+	for seed := int64(0); seed < 200; seed++ {
+		b := NewBoard(BoardWidth, BoardHeight, 9, rand.New(rand.NewSource(seed)))
+		for _, sp := range [2][2]int{{SpawnX1, SpawnY1}, {SpawnX2, SpawnY2}} {
+			for dy := -1; dy <= 1; dy++ {
+				for dx := -1; dx <= 1; dx++ {
+					if dx == 0 && dy == 0 {
+						continue
+					}
+					x, y := sp[0]+dx, sp[1]+dy
+					if b.Grid[y][x] == CellWall {
+						t.Fatalf("seed %d spawn (%d,%d) neighbor (%d,%d) is CellWall — tank would be wall-locked", seed, sp[0], sp[1], x, y)
+					}
+				}
+			}
+		}
+	}
+}
+
 func TestGenerateTerrain_Deterministic(t *testing.T) {
 	b1 := NewBoard(40, 21, 5, rand.New(rand.NewSource(42)))
 	b2 := NewBoard(40, 21, 5, rand.New(rand.NewSource(42)))

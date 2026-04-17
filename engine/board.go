@@ -41,11 +41,29 @@ func (b *Board) generateTerrain(rng *rand.Rand) {
 			if y == 12 && ((x >= 1 && x <= 5) || (x >= b.Width-6 && x <= b.Width-2)) {
 				continue
 			}
+			if b.isSpawnReserved(x, y) {
+				continue
+			}
 			if rng.Float64() < density {
 				b.Grid[y][x] = CellWall
 			}
 		}
 	}
+}
+
+// isSpawnReserved guards each tank's spawn cell plus all 8 neighbors against
+// terrain walls, guaranteeing at least one legal opening direction at match
+// start. Without this, dense-difficulty seeds randomly produce wall-locked
+// spawns that strand the tank — repro'd as flake in TestE2EInputAffectsState.
+func (b *Board) isSpawnReserved(x, y int) bool {
+	for _, sp := range [2][2]int{{SpawnX1, SpawnY1}, {SpawnX2, SpawnY2}} {
+		dx := x - sp[0]
+		dy := y - sp[1]
+		if dx >= -1 && dx <= 1 && dy >= -1 && dy <= 1 {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *Board) InBounds(x, y int) bool {

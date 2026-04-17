@@ -1,5 +1,24 @@
 ## Changelog
 
+### 0.9.6.1 - 2026-04-17 — Engine: spawn wall-lock fix (Phase 6 baseline cleanup)
+
+**Pre-existing flake discovered while preparing Phase 6 G-1 work.** `TestE2EInputAffectsState` (server) and `TestClientInputAffectsState` (client) both intermittently failed (~22% of runs at difficulty 5) with "tank did not move from (X,Y) after trying all 8 directions". Stress test confirmed the failure rate; investigation traced it to a real engine bug, not a test-code bug.
+
+**Root cause: spawn cells unprotected from random terrain.** `engine/board.go generateTerrain` reserved a single row at `y == 12` for `x ∈ [1..5]` and `[Width-6..Width-2]` — but tanks actually spawn at `(2, 10)` and `(BoardWidth-3, 10)` per `engine/game.go InitRound`. With ~14% wall density at difficulty 5, ~25% at difficulty 9, the 8 neighbors of a spawn cell could all be CellWall by chance, leaving the tank fully surrounded at match start with no legal move.
+
+**Fix:** added `SpawnX1, SpawnY1, SpawnX2, SpawnY2` constants in `engine/constants.go` (mirroring the literals already used in `InitRound`). `generateTerrain` now consults a new `isSpawnReserved(x, y)` helper that skips wall placement for the spawn cell and all 8 neighbors of each tank's start position. Existing `y == 12` strip protection is kept for backward compatibility with the original PET-style spawn corridor.
+
+**Verification:**
+- `TestE2EInputAffectsState`: 50/50 PASS post-fix (was 11/50 FAIL pre-fix)
+- `TestClientInputAffectsState`: 50/50 PASS post-fix (was ~5/10 FAIL pre-fix)
+- New `TestNewBoard_SpawnNeighborsClearAcrossSeeds` enumerates seeds 0..199 at difficulty 9, asserts no neighbor of any spawn is CellWall — locks in the regression boundary.
+- Existing `TestGenerateTerrain_DensityScaling` still within ±40 tolerance (spawn protection removes ≤16 cells out of 722 interior).
+- Full `go test -race ./... -count=1` green.
+
+**Files changed:** `engine/constants.go`, `engine/board.go`, `engine/board_test.go`, `client/integration_test.go` (8-direction defensive harness retained for resilience against future density tuning), `README.md`, `CHANGELOG.md`.
+
+**Phase 6 status:** baseline now reproducibly green. Next: G-1 (protocol versioning).
+
 ### 0.9.6 - 2026-04-17 — Bot AI: own-barrel LOS exception (fire-when-aligned fix)
 
 **Playtest feedback on 0.9.5: thinking delay at lvl 1 "feels about right", but the bot still marches across the entire screen along the same row as the player without firing — only firing once it ends up directly above/below.** Match log showed bot at Y=9, foe at (10,9), `pend=idle`, `sh=6` unchanged across ~1200 ticks of perfect same-row alignment. The 0.9.5 fire-interrupt only addressed the "pending move blocks fire" failure mode; this is a deeper LOS bug that prevents fire from ever being eligible in the first place.
