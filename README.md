@@ -4,7 +4,7 @@ Faithful recreation of the Commodore PET TANK! game with networked multiplayer v
 
 ## Version
 
-Current: **0.8.0** (Wave 8 - HTMX Lobby, ESC Dialog, Focus Fixes)
+Current: **0.9.0** (Wave 9 - Bot API & VS AI Mode)
 
 ## Quick Start
 
@@ -41,11 +41,14 @@ make clean         # Remove build artifacts
 ## Project Structure
 
 - `engine/` — Deterministic game engine (board, tanks, physics, collisions)
-- `server/` — HTTP API + WebSocket server (rooms, matchmaking, delta encoding)
+- `server/` — HTTP API + WebSocket server (rooms, matchmaking, delta encoding, bot manager)
 - `client/` — WASM client (renderer, input, audio, CRT shader)
 - `cmd/server/` — Server entry point
 - `cmd/client/` — Client/WASM entry point
+- `cmd/bot-go/` — Reference AI bot (Stage A state machine)
+- `bot-sdk-go/` — Go SDK for building custom bots
 - `web/` — Static files (HTML lobby, WASM binary, JS, CSS, fonts)
+- `docs/BOT_API.md` — External developer guide for bot protocol
 
 ## Architecture
 
@@ -60,10 +63,10 @@ This eliminates the canvas-focus bug that plagues keyboard input in WASM-rendere
 
 | Method | Endpoint | Description |
 |--------|-----------|-------------|
-| POST | `/api/room` | Create a new room |
+| POST | `/api/room` | Create a new room (supports `vs_ai`, `auto_fill_bot`, `auto_fill_after_sec`) |
 | POST | `/api/room/{code}/join` | Join an existing room |
-| GET | `/api/room/{code}/status` | Poll room status |
-| GET | `/api/room/{code}/events` | SSE stream for room events |
+| GET | `/api/room/{code}/status` | Poll room status (includes `is_bot`, `bot_class` for bot players) |
+| GET | `/api/room/{code}/events` | SSE stream for room events (`player_joined`, `bot_joined`, `game_starting`) |
 | GET | `/ws` | WebSocket for game communication |
 
 ## Server Flags
@@ -72,6 +75,16 @@ This eliminates the canvas-focus bug that plagues keyboard input in WASM-rendere
 - `-dir` — static files directory (default "web")
 - `-cors` — CORS allowed origin (default "*")
 - `-max-room-age` — stale room cleanup age (default 30m)
+
+## Bot Mode
+
+Set `TANK_ENABLE_BOTS=1` environment variable to enable bot opponents. When enabled:
+
+- **VS AI**: Click "VS AI" in the lobby to play against an immediate CPU opponent
+- **Auto-fill**: Create a room with `auto_fill_bot=true` and a bot joins after a configurable timeout if no human does
+- Bots connect via the same WebSocket protocol as humans — third-party bots can use the `bot-sdk-go` package
+
+See `docs/BOT_API.md` for the full bot developer guide.
 
 ## Controls
 

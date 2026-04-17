@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -25,6 +26,19 @@ func main() {
 	tokens := server.NewTokenStore()
 	handler := server.NewWSHandler(hub, tokens)
 	roomAPI := server.NewRoomAPI(hub, handler.Registry(), tokens)
+
+	serverAddr := *addr
+	if !strings.Contains(serverAddr, ":") {
+		serverAddr = "localhost:" + strings.TrimPrefix(serverAddr, ":")
+	}
+	botManager := server.NewBotManager(hub, handler, tokens, serverAddr)
+	roomAPI.SetBotManager(botManager)
+
+	if botManager.IsEnabled() {
+		log.Println("[bot] bot mode enabled via TANK_ENABLE_BOTS=1")
+	} else {
+		log.Println("[bot] bot mode disabled (set TANK_ENABLE_BOTS=1 to enable)")
+	}
 
 	mux := http.NewServeMux()
 	mux.Handle("/ws", handler)

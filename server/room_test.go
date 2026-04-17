@@ -258,3 +258,164 @@ func TestGetPlayerNilForEmptySlot(t *testing.T) {
 		t.Fatalf("expected nil for empty slot 2, got %+v", got)
 	}
 }
+
+func TestReserveBotSeat(t *testing.T) {
+	r := NewRoom("ROOM", 3)
+
+	err := r.ReserveBotSeat()
+	if err != nil {
+		t.Fatalf("expected ReserveBotSeat to succeed, got %v", err)
+	}
+	if !r.BotSeatReserved {
+		t.Fatal("expected BotSeatReserved to be true")
+	}
+
+	r.Players[1] = &Player{ID: 2, Name: "Bob", Connected: true}
+	err = r.ReserveBotSeat()
+	if err == nil {
+		t.Fatal("expected ReserveBotSeat to fail when seat is taken")
+	}
+}
+
+func TestAddBotPlayer(t *testing.T) {
+	r := NewRoom("ROOM", 3)
+
+	_, err := r.AddBotPlayer("Bot1", "bot-001", "mvp")
+	if err == nil {
+		t.Fatal("expected AddBotPlayer to fail without reservation")
+	}
+
+	r.BotSeatReserved = true
+	id, err := r.AddBotPlayer("Bot1", "bot-001", "mvp")
+	if err != nil {
+		t.Fatalf("expected AddBotPlayer to succeed after reservation, got %v", err)
+	}
+	if id != 2 {
+		t.Fatalf("expected player id 2, got %d", id)
+	}
+
+	p := r.GetPlayer(2)
+	if p == nil {
+		t.Fatal("expected player 2 to exist")
+	}
+	if !p.IsBot {
+		t.Fatal("expected player 2 to be a bot")
+	}
+	if p.BotID != "bot-001" {
+		t.Fatalf("expected BotID bot-001, got %q", p.BotID)
+	}
+	if p.BotClass != "mvp" {
+		t.Fatalf("expected BotClass mvp, got %q", p.BotClass)
+	}
+	if p.Name != "Bot1" {
+		t.Fatalf("expected Name Bot1, got %q", p.Name)
+	}
+
+	if r.GetState() != RoomReady {
+		t.Fatalf("expected RoomReady after bot joins, got %v", r.GetState())
+	}
+	if r.BotSeatReserved {
+		t.Fatal("expected BotSeatReserved to be cleared after AddBotPlayer")
+	}
+}
+
+func TestAddPlayerBotSeatReserved(t *testing.T) {
+	r := NewRoom("ROOM", 3)
+
+	r.BotSeatReserved = true
+
+	id1, err := r.AddPlayer("Alice")
+	if err != nil {
+		t.Fatalf("expected AddPlayer seat 1 to succeed, got %v", err)
+	}
+	if id1 != 1 {
+		t.Fatalf("expected player id 1, got %d", id1)
+	}
+
+	_, err = r.AddPlayer("Bob")
+	if err == nil {
+		t.Fatal("expected AddPlayer seat 2 to fail when bot seat is reserved")
+	}
+}
+
+func TestCancelBotReservation(t *testing.T) {
+	r := NewRoom("ROOM", 3)
+
+	r.ReserveBotSeat()
+	if !r.BotSeatReserved {
+		t.Fatal("expected BotSeatReserved to be true after ReserveBotSeat")
+	}
+
+	r.CancelBotReservation()
+	if r.BotSeatReserved {
+		t.Fatal("expected BotSeatReserved to be false after CancelBotReservation")
+	}
+
+	id, err := r.AddPlayer("Bob")
+	if err != nil {
+		t.Fatalf("expected AddPlayer to succeed after cancel, got %v", err)
+	}
+	if id != 1 {
+		t.Fatalf("expected player id 1 (first available seat), got %d", id)
+	}
+}
+
+func TestNewRoomWithBotPolicy(t *testing.T) {
+	r := NewRoomWithBotPolicy("ABCD", 5, true, true, 30)
+	if r.Code != "ABCD" {
+		t.Fatalf("expected code ABCD, got %q", r.Code)
+	}
+	if r.Difficulty != 5 {
+		t.Fatalf("expected difficulty 5, got %d", r.Difficulty)
+	}
+	if !r.AllowBot {
+		t.Fatal("expected AllowBot to be true")
+	}
+	if !r.AutoFillBot {
+		t.Fatal("expected AutoFillBot to be true")
+	}
+	if r.AutoFillAfterSec != 30 {
+		t.Fatalf("expected AutoFillAfterSec 30, got %d", r.AutoFillAfterSec)
+	}
+	if r.State != RoomWaiting {
+		t.Fatalf("expected state RoomWaiting, got %v", r.State)
+	}
+}
+
+func TestRemoveBotPlayerClearsReservation(t *testing.T) {
+	r := NewRoomWithBotPolicy("ROOM", 3, true, false, 0)
+	r.BotSeatReserved = true
+
+	r.Players[1] = &Player{ID: 2, Name: "Bot1", Connected: true, IsBot: true, BotID: "bot-001"}
+	r.RemovePlayer(2)
+
+	if r.BotSeatReserved {
+		t.Fatal("expected BotSeatReserved to be cleared when bot player removed")
+	}
+}
+
+func TestRoomWithBotPolicy_StatusAPI(t *testing.T) {
+	r := NewRoomWithBotPolicy("ABCD", 5, true, true, 30)
+	r.Players[0] = &Player{ID: 1, Name: "Alice", Connected: true}
+
+	if !r.AllowBot {
+		t.Fatal("expected AllowBot to be true")
+	}
+	if !r.AutoFillBot {
+		t.Fatal("expected AutoFillBot to be true")
+	}
+	if r.AutoFillAfterSec != 30 {
+		t.Fatalf("expected AutoFillAfterSec 30, got %d", r.AutoFillAfterSec)
+	}
+
+	r.Players[1] = &Player{ID: 2, Name: "Bot1", Connected: true, IsBot: true, BotID: "bot-001", BotClass: "mvp"}
+
+	p1 := r.GetPlayer(1)
+	p2 := r.GetPlayer(2)
+	if p1 == nil || p2 == nil {
+		t.Fatal("expected both players to exist")
+	}
+	if !p2.IsBot {
+		t.Fatal("expected player 2 to be a bot")
+	}
+}

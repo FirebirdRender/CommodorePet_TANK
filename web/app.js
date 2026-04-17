@@ -1,10 +1,11 @@
 // State
-let gameState = 'lobby'; 
+let gameState = 'lobby';
 let roomCode = '';
 let playerID = 0;
 let token = '';
 let playerName = '';
 let difficulty = 5;
+let vsAI = false;
 let eventSource = null;
 let pollInterval = null;
 
@@ -16,6 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function setupEventListeners() {
     document.getElementById('btn-create').addEventListener('click', createRoom);
+    document.getElementById('btn-ai').addEventListener('click', () => { vsAI = true; createRoom(); });
     document.getElementById('btn-join').addEventListener('click', joinRoom);
     document.getElementById('btn-cancel').addEventListener('click', cancelRoom);
     document.getElementById('copy-btn').addEventListener('click', copyRoomCode);
@@ -53,30 +55,33 @@ async function createRoom() {
     const nameInput = document.getElementById('player-name');
     const name = nameInput.value.trim();
     if (!name) { showError('Enter your name'); return; }
-    
+
     try {
         const res = await fetch('/api/room', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ difficulty: difficulty, player_name: name })
+            body: JSON.stringify({ difficulty: difficulty, player_name: name, vs_ai: vsAI })
         });
-        
+
         if (!res.ok) {
             const err = await res.json();
             showError(err.message || 'Failed to create room');
+            vsAI = false;
             return;
         }
-        
+
         const data = await res.json();
         roomCode = data.room_code;
         playerID = data.player_id;
         token = data.token;
         playerName = data.player_name;
-        
+
         showWaitingScreen();
         startEventStream();
+        vsAI = false;
     } catch (e) {
         showError('Network error: ' + e.message);
+        vsAI = false;
     }
 }
 
@@ -140,7 +145,19 @@ function startEventStream() {
         showError('Room expired');
         showLobby();
     });
-    
+
+    eventSource.addEventListener('bot_joined', (e) => {
+        document.getElementById('waiting-status').textContent = 'VS CPU';
+        setTimeout(() => {
+            cleanup();
+            redirectToGame();
+        }, 500);
+    });
+
+    eventSource.addEventListener('auto_fill_started', (e) => {
+        document.getElementById('waiting-status').textContent = 'AUTO-FILL: FINDING OPPONENT...';
+    });
+
     eventSource.onerror = () => {
         if (eventSource) eventSource.close();
         startPolling();
@@ -236,7 +253,11 @@ function showWaitingScreen() {
     document.getElementById('room-code-display').textContent = roomCode;
     document.getElementById('difficulty-display').textContent = 'DIFFICULTY: ' + difficulty;
     if (!document.getElementById('waiting-status').textContent.includes('VS')) {
-        document.getElementById('waiting-status').textContent = 'WAITING FOR OPPONENT...';
+        if (vsAI) {
+            document.getElementById('waiting-status').textContent = 'WAITING FOR CPU OPPONENT...';
+        } else {
+            document.getElementById('waiting-status').textContent = 'WAITING FOR OPPONENT...';
+        }
     }
 }
 

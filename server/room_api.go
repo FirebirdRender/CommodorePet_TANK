@@ -3,15 +3,17 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
 )
 
 type RoomAPI struct {
-	hub      *Hub
-	registry *ConnRegistry
-	tokens   *TokenStore
+	hub        *Hub
+	registry   *ConnRegistry
+	tokens     *TokenStore
+	botManager *BotManager
 }
 
 func NewRoomAPI(hub *Hub, registry *ConnRegistry, tokens *TokenStore) *RoomAPI {
@@ -20,6 +22,10 @@ func NewRoomAPI(hub *Hub, registry *ConnRegistry, tokens *TokenStore) *RoomAPI {
 		registry: registry,
 		tokens:   tokens,
 	}
+}
+
+func (api *RoomAPI) SetBotManager(bm *BotManager) {
+	api.botManager = bm
 }
 
 func (api *RoomAPI) RegisterRoutes(mux *http.ServeMux) {
@@ -34,8 +40,11 @@ func (api *RoomAPI) handleCreateRoom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req struct {
-		Difficulty int    `json:"difficulty"`
-		PlayerName string `json:"player_name"`
+		Difficulty       int    `json:"difficulty"`
+		PlayerName       string `json:"player_name"`
+		VsAI             bool   `json:"vs_ai,omitempty"`
+		AutoFillBot      bool   `json:"auto_fill_bot,omitempty"`
+		AutoFillAfterSec int    `json:"auto_fill_after_sec,omitempty"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -53,7 +62,12 @@ func (api *RoomAPI) handleCreateRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	room := api.hub.CreateRoom(req.Difficulty)
+	var room *Room
+	if req.VsAI || req.AutoFillBot {
+		room = api.hub.CreateRoomWithBotPolicy(req.Difficulty, req.VsAI, req.AutoFillBot, req.AutoFillAfterSec)
+	} else {
+		room = api.hub.CreateRoom(req.Difficulty)
+	}
 	if room == nil {
 		http.Error(w, "Failed to create room", http.StatusInternalServerError)
 		return
@@ -67,12 +81,30 @@ func (api *RoomAPI) handleCreateRoom(w http.ResponseWriter, r *http.Request) {
 
 	token := api.tokens.GenerateToken(room.Code, playerID, req.PlayerName)
 
+	botAssigned := false
+	if req.VsAI && api.botManager != nil && api.botManager.IsEnabled() {
+		if err := api.botManager.AssignBotToRoom(room.Code, "mvp"); err == nil {
+			botAssigned = true
+		} else {
+			log.Printf("[bot] failed to assign bot to room %s: %v", room.Code, err)
+		}
+	} else if req.AutoFillBot && req.AutoFillAfterSec > 0 && api.botManager != nil && api.botManager.IsEnabled() {
+		room.SetAutoFillTimer(time.AfterFunc(time.Duration(req.AutoFillAfterSec)*time.Second, func() {
+			if err := api.botManager.AssignBotToRoom(room.Code, "mvp"); err != nil {
+				log.Printf("[bot] auto-fill timer triggered but failed to assign bot to room %s: %v", room.Code, err)
+			}
+		}))
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"room_code":   room.Code,
-		"player_id":   playerID,
-		"token":       token,
-		"player_name": req.PlayerName,
+		"room_code":     room.Code,
+		"player_id":     playerID,
+		"token":         token,
+		"player_name":   req.PlayerName,
+		"vs_ai":         req.VsAI,
+		"auto_fill_bot": req.AutoFillBot,
+		"bot_assigned":  botAssigned,
 	})
 }
 
@@ -144,6 +176,10 @@ func (api *RoomAPI) handleJoinRoom(w http.ResponseWriter, r *http.Request, code 
 		return
 	}
 
+	if playerID == 2 && room.AutoFillBot && api.botManager != nil {
+		room.CancelBotReservation()
+	}
+
 	token := api.tokens.GenerateToken(room.Code, playerID, req.PlayerName)
 
 	var opponentName string
@@ -188,17 +224,30 @@ func (api *RoomAPI) handleRoomStatus(w http.ResponseWriter, r *http.Request, cod
 	room.mu.Lock()
 	for _, p := range room.Players {
 		if p != nil {
-			players = append(players, map[string]any{"id": p.ID, "name": p.Name})
+			player := map[string]any{"id": p.ID, "name": p.Name}
+			if p.IsBot {
+				player["is_bot"] = true
+				if p.BotClass != "" {
+					player["bot_class"] = p.BotClass
+				}
+			}
+			players = append(players, player)
 		}
 	}
 	diff := room.Difficulty
+	allowBot := room.AllowBot
+	autoFillBot := room.AutoFillBot
+	autoFillAfterSec := room.AutoFillAfterSec
 	room.mu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"status":     status,
-		"difficulty": diff,
-		"players":    players,
+		"status":              status,
+		"difficulty":          diff,
+		"players":             players,
+		"allow_bot":           allowBot,
+		"auto_fill_bot":       autoFillBot,
+		"auto_fill_after_sec": autoFillAfterSec,
 	})
 }
 
@@ -253,15 +302,23 @@ func (api *RoomAPI) handleRoomEvents(w http.ResponseWriter, r *http.Request, cod
 
 			if currCount > lastPlayerCount && currCount == 2 {
 				var oppName string
+				var isBot bool
 				room.mu.Lock()
 				for _, p := range room.Players {
 					if p != nil && p.ID != 1 {
 						oppName = p.Name
+						isBot = p.IsBot
 					}
 				}
 				room.mu.Unlock()
-				data, _ := json.Marshal(map[string]string{"room_code": roomCode, "opponent_name": oppName})
-				fmt.Fprintf(w, "event: player_joined\ndata: %s\n\n", string(data))
+
+				if isBot {
+					data, _ := json.Marshal(map[string]interface{}{"room_code": roomCode, "opponent_name": oppName, "is_bot": true})
+					fmt.Fprintf(w, "event: bot_joined\ndata: %s\n\n", string(data))
+				} else {
+					data, _ := json.Marshal(map[string]string{"room_code": roomCode, "opponent_name": oppName})
+					fmt.Fprintf(w, "event: player_joined\ndata: %s\n\n", string(data))
+				}
 				flusher.Flush()
 			}
 

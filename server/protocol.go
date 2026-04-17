@@ -49,8 +49,11 @@ type InputMsg struct {
 }
 
 type CreateRoomMsg struct {
-	Difficulty int    `json:"difficulty"`
-	PlayerName string `json:"player_name"`
+	Difficulty       int    `json:"difficulty"`
+	PlayerName       string `json:"player_name"`
+	VsAI             bool   `json:"vs_ai,omitempty"`
+	AutoFillBot      bool   `json:"auto_fill_bot,omitempty"`
+	AutoFillAfterSec int    `json:"auto_fill_after_sec,omitempty"`
 }
 
 type JoinRoomMsg struct {
@@ -81,7 +84,9 @@ type RoomCreatedMsg struct {
 type JoinedMsg struct {
 	RoomCode     string `json:"room_code"`
 	PlayerID     int    `json:"player_id"`
-	OpponentName string `json:"opponent_name"`
+	OpponentName string `json:"opponent_name,omitempty"`
+	IsBot        bool   `json:"is_bot,omitempty"`
+	BotClass     string `json:"bot_class,omitempty"`
 }
 
 type GameStartMsg struct {
@@ -130,6 +135,8 @@ type RejoinAckMsg struct {
 	RoomCode     string `json:"room_code"`
 	PlayerID     int    `json:"player_id"`
 	OpponentName string `json:"opponent_name,omitempty"`
+	IsBot        bool   `json:"is_bot,omitempty"`
+	BotClass     string `json:"bot_class,omitempty"`
 }
 
 type TankState struct {

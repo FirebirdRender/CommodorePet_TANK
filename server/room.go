@@ -22,6 +22,9 @@ type Player struct {
 	Ready        bool
 	Connected    bool
 	WantsRematch bool
+	IsBot        bool
+	BotID        string
+	BotClass     string
 }
 
 type Room struct {
@@ -30,6 +33,12 @@ type Room struct {
 	State      RoomState
 	Players    [2]*Player
 	CreatedAt  time.Time
+
+	AllowBot         bool
+	AutoFillBot      bool
+	AutoFillAfterSec int
+	BotSeatReserved  bool
+	autoFillTimer    *time.Timer
 
 	mu sync.Mutex
 }
@@ -43,6 +52,18 @@ func NewRoom(code string, difficulty int) *Room {
 	}
 }
 
+func NewRoomWithBotPolicy(code string, difficulty int, allowBot, autoFillBot bool, autoFillAfterSec int) *Room {
+	return &Room{
+		Code:             code,
+		Difficulty:       difficulty,
+		State:            RoomWaiting,
+		CreatedAt:        time.Now(),
+		AllowBot:         allowBot,
+		AutoFillBot:      autoFillBot,
+		AutoFillAfterSec: autoFillAfterSec,
+	}
+}
+
 func (r *Room) AddPlayer(name string) (playerID int, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -53,6 +74,9 @@ func (r *Room) AddPlayer(name string) (playerID int, err error) {
 	}
 
 	if r.Players[1] == nil {
+		if r.BotSeatReserved {
+			return 0, fmt.Errorf("seat reserved for bot")
+		}
 		r.Players[1] = &Player{ID: 2, Name: name, Connected: true}
 		if r.State == RoomWaiting {
 			r.State = RoomReady
@@ -71,6 +95,9 @@ func (r *Room) RemovePlayer(playerID int) (empty bool) {
 		p := r.Players[playerID-1]
 		if p != nil {
 			p.Connected = false
+			if p.IsBot {
+				r.BotSeatReserved = false
+			}
 		}
 	}
 
@@ -192,4 +219,55 @@ func (r *Room) connectedCountLocked() int {
 		}
 	}
 	return count
+}
+
+func (r *Room) ReserveBotSeat() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.Players[1] != nil {
+		return fmt.Errorf("seat already taken")
+	}
+	r.BotSeatReserved = true
+	return nil
+}
+
+func (r *Room) AddBotPlayer(name, botID, botClass string) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if !r.BotSeatReserved {
+		return 0, fmt.Errorf("no bot seat reserved")
+	}
+
+	r.Players[1] = &Player{
+		ID:        2,
+		Name:      name,
+		Connected: true,
+		IsBot:     true,
+		BotID:     botID,
+		BotClass:  botClass,
+	}
+	r.BotSeatReserved = false
+
+	if r.State == RoomWaiting {
+		r.State = RoomReady
+	}
+	return 2, nil
+}
+
+func (r *Room) CancelBotReservation() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.BotSeatReserved = false
+	if r.autoFillTimer != nil {
+		r.autoFillTimer.Stop()
+		r.autoFillTimer = nil
+	}
+}
+
+func (r *Room) SetAutoFillTimer(t *time.Timer) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.autoFillTimer = t
 }

@@ -49,6 +49,27 @@ func (h *Hub) RemoveRoom(code string) {
 	delete(h.rooms, code)
 }
 
+func (h *Hub) CreateRoomWithBotPolicy(difficulty int, allowBot, autoFillBot bool, autoFillAfterSec int) *Room {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for range 100 {
+		code := h.generateCode()
+		if code == "" {
+			return nil
+		}
+		if _, exists := h.rooms[code]; exists {
+			continue
+		}
+
+		room := NewRoomWithBotPolicy(code, difficulty, allowBot, autoFillBot, autoFillAfterSec)
+		h.rooms[code] = room
+		return room
+	}
+
+	return nil
+}
+
 func (h *Hub) RoomCount() int {
 	h.mu.Lock()
 	defer h.mu.Unlock()

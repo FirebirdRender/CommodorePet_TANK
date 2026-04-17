@@ -1,5 +1,36 @@
 ## Changelog
 
+### 0.9.0 - 2026-04-17 — Wave 9: Bot API & VS AI Mode
+
+**New:**
+- **Bot API**: Third-party bots connect via the same WebSocket protocol as human players. Full protocol documented in `docs/BOT_API.md` — envelope format, message types, timing semantics, error codes, golden message fixtures, versioning policy, and Go SDK quickstart.
+- **VS AI Mode**: "VS AI" button in lobby creates a room with an immediate CPU opponent. Server assigns a bot via `BotManager` which dials the local WS endpoint as a regular client. SSE emits `bot_joined` event when a bot joins.
+- **Auto-fill Bot**: Create a room with `auto_fill_bot=true` and `auto_fill_after_sec=N` — if no human joins within N seconds, a bot automatically fills seat 2. Human joining before the timer cancels the auto-fill.
+- **Go Bot SDK** (`bot-sdk-go/`): Standalone client package with WS dial, envelope helpers, reconnect policy (exponential backoff + jitter), typed callbacks for all message types, input sender with edge semantics, and `play_again` lifecycle support.
+- **Reference Bot** (`cmd/bot-go/`): Stage A MVP AI — fires when aligned, moves toward enemy with obstacle avoidance, close-range evasion and mines, fallback random movement. Auto-creates room via HTTP API or joins existing room. Handles `game_over` (sends `play_again`) and `opponent_left` (graceful exit).
+- **Bot Manager** (`server/bot_manager.go`): Orchestrates bot connections — `AssignBotToRoom`, `ReleaseBot`, `HealthSnapshot`. Feature-flagged via `TANK_ENABLE_BOTS=1`. Panic recovery in bot goroutines prevents server crashes.
+- **Input Flood Guard** (`server/input_guard.go`): Rate limiter caps input messages at 120/sec per connection (2× tick rate). Excess inputs are silently dropped.
+
+**Server Changes:**
+- `server/room.go`: `Player` gains `IsBot`, `BotID`, `BotClass` fields. `Room` gains `AllowBot`, `AutoFillBot`, `AutoFillAfterSec`, `BotSeatReserved`, auto-fill timer. New methods: `ReserveBotSeat()`, `AddBotPlayer()`, `CancelBotReservation()`, `SetAutoFillTimer()`, `NewRoomWithBotPolicy()`.
+- `server/protocol.go`: `CreateRoomMsg` gains `VsAI`, `AutoFillBot`, `AutoFillAfterSec`. `JoinedMsg` and `RejoinAckMsg` gain `IsBot`, `BotClass` (omitempty).
+- `server/room_api.go`: Creates rooms with bot policy, assigns bots for VS AI, sets auto-fill timer, cancels timer on human join, SSE `bot_joined` event, room status includes `is_bot`/`bot_class` for bot players and `allow_bot`/`auto_fill_bot`/`auto_fill_after_sec` policy fields.
+- `server/room_api.go`: New `SetBotManager()` for dependency injection of `BotManager` into `RoomAPI`.
+- `server/hub.go`: `CreateRoomWithBotPolicy()` constructor.
+- `server/ws_handler.go`: `InputGuard` on `ClientConn`, checked in `handleInput()`.
+- `cmd/server/main.go`: Creates `BotManager`, wires into `RoomAPI`, logs feature flag status.
+
+**Lobby Changes:**
+- `web/index.html`: "VS AI" button with amber PETSCII styling, "AI MODE" label under difficulty slider.
+- `web/app.js`: `vsAI` state, VS AI button handler, `bot_joined` and `auto_fill_started` SSE event handlers, "WAITING FOR CPU OPPONENT..." waiting message.
+
+**Tests:**
+- 7 new unit tests for bot identity, room policy, seat claiming, auto-fill, removal, and status API (`server/room_test.go`).
+- 5 new integration tests for VS AI room creation, bot join, disconnect handling, room status with bot info, and auto-fill timer cancellation (`server/bot_e2e_test.go`).
+- 5 new `BotManager` tests for enabled/disabled state, room assignment, release, and health (`server/bot_manager_test.go`).
+- 4 new `InputGuard` tests for rate limiting, window reset, and concurrency (`server/input_guard_test.go`).
+- 3 SDK tests for message wrapping, unwrap, and reconnect policy (`bot-sdk-go/client_test.go`).
+
 ### 0.8.0 - 2026-04-15 — Wave 8: HTMX Lobby & Focus Fixes
 
 **New:**

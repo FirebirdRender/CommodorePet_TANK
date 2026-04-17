@@ -3,6 +3,7 @@ module github.com/FirebirdRender/CommodorePet_TANK
 go 1.24.0
 
 require (
+	github.com/FirebirdRender/CommodorePet_TANK/bot-sdk-go v0.0.0-00010101000000-000000000000
 	github.com/coder/websocket v1.8.12
 	github.com/hajimehoshi/ebiten/v2 v2.9.9
 )
@@ -20,3 +21,5 @@ require (
 	golang.org/x/sys v0.36.0 // indirect
 	golang.org/x/text v0.29.0 // indirect
 )
+
+replace github.com/FirebirdRender/CommodorePet_TANK/bot-sdk-go => ./bot-sdk-go

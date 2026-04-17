@@ -5,6 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TANK! NETWORK BATTLE</title>
     <link rel="stylesheet" href="style.css">
+    <style>
+        .btn-ai {
+            background: var(--pet-bg);
+            color: var(--pet-amber);
+            border: 2px solid var(--pet-amber);
+        }
+        .btn-ai:hover {
+            background: var(--pet-amber);
+            color: var(--pet-bg);
+        }
+        .ai-mode-label {
+            font-size: 0.85rem;
+            color: var(--pet-amber);
+            margin-top: 4px;
+            display: none;
+        }
+        .ai-mode-label.visible {
+            display: block;
+        }
+    </style>
 </head>
 <body>
     <div id="error-banner" class="error-text hidden"></div>
@@ -25,10 +45,12 @@
             <div class="input-group">
                 <label class="input-label">DIFFICULTY: <span id="difficulty-value">5</span></label>
                 <input type="range" id="difficulty" class="difficulty-slider" min="1" max="10" value="5">
+                <div id="ai-mode-label" class="ai-mode-label">AI MODE</div>
             </div>
 
             <div class="btn-container">
-                <button id="btn-create" class="btn btn-primary">CREATE ROOM</button>
+                <button id="btn-create" class="btn btn-primary" type="button">CREATE ROOM</button>
+                <button id="btn-ai" class="btn btn-ai" type="button">VS AI</button>
             </div>
 
             <div class="divider">-- OR --</div>
@@ -37,7 +59,7 @@
                 <label class="input-label">JOIN ROOM:</label>
                 <div class="join-row">
                     <input type="text" id="join-code" class="input-field" maxlength="4" placeholder="CODE" autocomplete="off">
-                    <button id="btn-join" class="btn btn-secondary">JOIN</button>
+                    <button id="btn-join" class="btn btn-secondary" type="button">JOIN</button>
                 </div>
             </div>
         </section>
@@ -47,7 +69,7 @@
             <div class="room-code-container">
                 <div class="input-label">ROOM CODE:</div>
                 <div id="room-code-display" class="room-code-display">----</div>
-                <button id="copy-btn" class="btn copy-btn">COPY</button>
+                <button id="copy-btn" class="btn copy-btn" type="button">COPY</button>
             </div>
 
             <div id="difficulty-display" class="status-text">
@@ -59,7 +81,7 @@
             </div>
 
             <div class="btn-container">
-                <button id="btn-cancel" class="btn btn-secondary">CANCEL</button>
+                <button id="btn-cancel" class="btn btn-secondary" type="button">CANCEL</button>
             </div>
         </section>
 

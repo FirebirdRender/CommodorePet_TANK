@@ -15,10 +15,11 @@ import (
 const writeTimeout = 5 * time.Second
 
 type ClientConn struct {
-	conn     *websocket.Conn
-	hub      *Hub
-	handler  *WSHandler
-	playerID int
+	conn       *websocket.Conn
+	hub        *Hub
+	handler    *WSHandler
+	playerID   int
+	inputGuard *InputGuard
 
 	sendCh chan []byte
 	done   chan struct{}
@@ -84,11 +85,12 @@ func (h *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := &ClientConn{
-		conn:    conn,
-		hub:     h.Hub,
-		handler: h,
-		sendCh:  make(chan []byte, 256),
-		done:    make(chan struct{}),
+		conn:       conn,
+		hub:        h.Hub,
+		handler:    h,
+		sendCh:     make(chan []byte, 256),
+		done:       make(chan struct{}),
+		inputGuard: NewInputGuard(),
 	}
 
 	go client.readPump()
@@ -382,6 +384,10 @@ func (c *ClientConn) handleReady(payload []byte) {
 }
 
 func (c *ClientConn) handleInput(payload []byte) {
+	if !c.inputGuard.Allow() {
+		return
+	}
+
 	mc := c.getMatch()
 	if mc == nil {
 		c.sendError(ErrCodeNotReady, "match not started")
