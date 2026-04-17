@@ -6,9 +6,9 @@ import (
 
 // Message type constants (matching server protocol.go)
 const (
-	MsgTypeInput        = "input"
-	MsgTypeRejoin       = "rejoin"
-	MsgTypePlayAgain    = "play_again"
+	MsgTypeInput     = "input"
+	MsgTypeRejoin    = "rejoin"
+	MsgTypePlayAgain = "play_again"
 
 	MsgTypeJoined       = "joined"
 	MsgTypeGameStart    = "game_start"
@@ -18,6 +18,7 @@ const (
 	MsgTypeGameOver     = "game_over"
 	MsgTypeError        = "error"
 	MsgTypeOpponentLeft = "opponent_left"
+	MsgTypePlayAgainAck = "play_again_ack"
 )
 
 // Envelope represents a JSON message envelope.
@@ -84,16 +85,16 @@ type JoinedPayload struct {
 
 // RoundOverPayload — round ended, best of series.
 type RoundOverPayload struct {
-	Winner        int  `json:"winner"`
+	Winner        int    `json:"winner"`
 	Wins          [2]int `json:"wins"`
-	BattlesPlayed int  `json:"battles_played"`
+	BattlesPlayed int    `json:"battles_played"`
 }
 
 // GameOverPayload — match series ended.
 type GameOverPayload struct {
-	Winner       int  `json:"winner"`
+	Winner       int    `json:"winner"`
 	FinalWins    [2]int `json:"final_wins"`
-	TotalBattles int  `json:"total_battles"`
+	TotalBattles int    `json:"total_battles"`
 }
 
 // ErrorPayload — error from server.

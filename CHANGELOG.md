@@ -1,5 +1,17 @@
 ## Changelog
 
+### 0.9.5 - 2026-04-17 — Bot AI: fire-interrupt + thinking delay + clean game-end
+
+**Playtest feedback on 0.9.4: bot moves and tracks the player, but (1) never fires even on clean shots, (2) is too fast at low difficulty, (3) errors out at game end with `unknown message type: play_again_ack`.** Three independent fixes:
+
+- **Fire-interrupt preempts pending move (root cause of "bot never fires").** In 0.9.4 the bot stayed locked in `pendingMove` for the full `MoveDelay` window — at difficulty 1 that's ~33 ticks per cell, far longer than the typical alignment window in which both tanks share a row or column. Fire-eligibility was only evaluated in `startNewAction`, which only runs in the 1-tick gap between pending=idle and the next `commitMove` — so alignment opportunities were systematically missed. Match logs confirmed `me=(18,8) foe=(9,8)` aligned at t1290 with `pend=move/down@1287`, no shots fired across 2880 ticks (`sh=6` unchanged). Fix: `Decide` now checks fire-eligibility **before** the pending-state guard. If a move is pending AND the bot has LOS AND `my.Dir` already points at the enemy AND shots remain, it clears the pending move and releases the held movement key. Next tick `startNewAction` fires.
+- **Scaling thinking delay (1.0s @ lvl 1 → 0.0s @ lvl 10).** New `thinkingDelayTicks(difficulty)` returns `(10 - difficulty) * 6` ticks at 60 Hz: lvl 1 = 60 ticks (1.0s), lvl 5 = 30 ticks (0.5s), lvl 9 = 6 ticks (0.1s), lvl 10 = 0. Per user request "Delay both before action AND between move re-commits", the gate `if tick < bs.nextActionTick { return nil }` is applied at the top of both `commitMove` (after the held-key short-circuit but before pending creation) and `startNewAction`'s fire-down / mine-down paths. `nextActionTick = tick + thinkingDelayTicks(difficulty)` is set after every commit (move-down, fire-down, mine-down) but **not** after release-up events — pending-resolution traffic must flow at engine cadence to keep the closed-loop SM honest. Fire-interrupt is also ungated, so the bot can still react instantly to alignment windows even at low difficulty (the delay throttles initiative, not reflexes).
+- **`play_again_ack` no-op in SDK.** `bot-sdk-go/client.go` returned `unknown message type: play_again_ack` when the server sent the post-game ack, killing the read loop with noisy EOF logs. Bots don't participate in rematch flow (room is torn down), so the SDK now handles `MsgTypePlayAgainAck` as a no-op with a justified comment explaining why the empty case must remain.
+
+**Files changed:** `cmd/bot-go/ai.go`, `bot-sdk-go/client.go`, `bot-sdk-go/protocol.go`, `README.md`, `CHANGELOG.md`.
+
+**Test coverage:** Existing `TestBot_RuntimeBotInputAffectsState` continues to pass (movement still works); thinking delay does not regress the difficulty-5 movement assertion (bot moves 37,10 → 26,11 in 7s, slower than 0.9.4's 24,10 due to the new 0.5s/cell delay, but well within the test's "must move" tolerance).
+
 ### 0.9.4 - 2026-04-17 — Bot AI: closed-loop SM + writePump fix + grid-aware movement
 
 **Bug Fixes — bot connected and looked alive in 0.9.3 logs but never actually delivered input to the server, then once that was fixed, got stuck on its own barrel and oscillated.** Six independent bugs across the SDK and AI:

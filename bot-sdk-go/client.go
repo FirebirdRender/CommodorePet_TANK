@@ -330,6 +330,11 @@ func (c *Client) dispatchMessage(msgType string, payload []byte) error {
 		if c.OnJoined != nil {
 			c.OnJoined(&p)
 		}
+	case MsgTypePlayAgainAck:
+		// Server-emitted post-game acknowledgment. The bot does not
+		// participate in rematch flow (room is torn down at game end), so
+		// this is a no-op. Without this case the default branch returns
+		// an error, killing the WS read loop with noisy EOF logs.
 	default:
 		return fmt.Errorf("unknown message type: %s", msgType)
 	}

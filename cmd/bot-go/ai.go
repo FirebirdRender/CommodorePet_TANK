@@ -72,6 +72,17 @@ type BotState struct {
 	lastDesiredDir     string
 	desiredStableTicks int
 
+	// Thinking-delay throttle. nextActionTick is the earliest tick at which
+	// startNewAction is allowed to emit a NEW intent (commitMove / fire-down /
+	// mine-down). Pending-resolution traffic (release-up emitted by checkAck
+	// or by startNewAction's heldFire/heldMine drain) is NOT gated — those
+	// finish the prior action and must flow at engine cadence to keep the
+	// closed-loop SM honest. Difficulty 10 → delayTicks=0 (no gate); difficulty
+	// 1 → delayTicks=60 (1.0s between every new action including move
+	// re-commits, per user request "Delay both before action AND between move
+	// re-commits").
+	nextActionTick uint64
+
 	lastLogLine string
 	decideCount int
 }
@@ -114,11 +125,23 @@ func (bs *BotState) ApplyDelta(changes []botsdk.CellChange) {
 }
 
 const (
-	moveAckTimeoutTicks = 30
-	fireAckTimeoutTicks = 10
-	mineAckTimeoutTicks = 10
-	hysteresisTicks     = 2
+	moveAckTimeoutTicks    = 30
+	fireAckTimeoutTicks    = 10
+	mineAckTimeoutTicks    = 10
+	hysteresisTicks        = 2
+	thinkingDelayStepTicks = 6
+	thinkingDelayMaxLevel  = 10
 )
+
+func thinkingDelayTicks(difficulty int) uint64 {
+	if difficulty >= thinkingDelayMaxLevel {
+		return 0
+	}
+	if difficulty < 1 {
+		difficulty = 1
+	}
+	return uint64((thinkingDelayMaxLevel - difficulty) * thinkingDelayStepTicks)
+}
 
 // Direction constants mirror engine/constants.go; the SDK's TankInfo.Dir
 // carries the engine's int value. Local copy avoids importing the engine
@@ -195,6 +218,26 @@ func (bs *BotState) Decide(tick uint64, tanks [2]botsdk.TankInfo) []InputAction 
 		}
 	}
 
+	// Fire-interrupt: if a move is pending but we now have a clean shot
+	// already pointing the right way, abort the move (release held key) so
+	// next tick startNewAction can fire. Without this preemption the bot
+	// stays locked in move-pending across the entire alignment window —
+	// MoveDelay at low difficulty (~33 ticks) far exceeds the window in
+	// which both tanks share a row/column, so fire opportunities are
+	// systematically missed (root cause of 0.9.4 "bot never fires" bug).
+	if bs.pending.kind == pendingMove && enemy != nil && enemy.Active &&
+		my.ShotsLeft > 0 && bs.canFireWithLOS(my, enemy) {
+		desiredFireDir := dirToward(my.X, my.Y, enemy.X, enemy.Y)
+		if desiredFireDir != 0 && my.Dir == desiredFireDir {
+			bs.clearPending("fire_interrupt")
+			if bs.heldMove != "" {
+				key := bs.heldMove
+				bs.heldMove = ""
+				return []InputAction{{Key: key, Action: "up"}}
+			}
+		}
+	}
+
 	if bs.pending.kind != pendingNone {
 		return nil
 	}
@@ -265,6 +308,10 @@ func (bs *BotState) startNewAction(tick uint64, my, enemy *botsdk.TankInfo) []In
 		return []InputAction{{Key: "mine", Action: "up"}}
 	}
 
+	if tick < bs.nextActionTick {
+		return nil
+	}
+
 	if enemy != nil && enemy.Active && bs.canFireWithLOS(my, enemy) {
 		desiredFireDir := dirToward(my.X, my.Y, enemy.X, enemy.Y)
 		if desiredFireDir != 0 && my.Dir != desiredFireDir {
@@ -284,6 +331,7 @@ func (bs *BotState) startNewAction(tick uint64, my, enemy *botsdk.TankInfo) []In
 			beforeMines: my.MinesLeft,
 		}
 		bs.heldFire = true
+		bs.nextActionTick = tick + thinkingDelayTicks(bs.Difficulty)
 		return []InputAction{{Key: "fire", Action: "down"}}
 	}
 
@@ -301,6 +349,7 @@ func (bs *BotState) startNewAction(tick uint64, my, enemy *botsdk.TankInfo) []In
 				beforeMines: my.MinesLeft,
 			}
 			bs.heldMine = true
+			bs.nextActionTick = tick + thinkingDelayTicks(bs.Difficulty)
 			return []InputAction{{Key: "mine", Action: "down"}}
 		}
 	}
@@ -347,6 +396,9 @@ func (bs *BotState) commitMove(tick uint64, my *botsdk.TankInfo, key string) []I
 		bs.heldMove = ""
 		return []InputAction{{Key: old, Action: "up"}}
 	}
+	if tick < bs.nextActionTick {
+		return nil
+	}
 	bs.pending = pending{
 		kind:        pendingMove,
 		key:         key,
@@ -358,6 +410,7 @@ func (bs *BotState) commitMove(tick uint64, my *botsdk.TankInfo, key string) []I
 		beforeMines: my.MinesLeft,
 	}
 	bs.heldMove = key
+	bs.nextActionTick = tick + thinkingDelayTicks(bs.Difficulty)
 	return []InputAction{{Key: key, Action: "down"}}
 }
 
