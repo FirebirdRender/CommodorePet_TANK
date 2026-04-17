@@ -6,25 +6,27 @@ echo.
 echo Tank Game Build Script
 echo 1. wasm          - Build WASM client
 echo 2. server        - Build Go server
-echo 3. build-all     - Build both WASM and Server
-echo 4. dev           - Run server in dev mode
-echo 5. test          - Run all tests with race detector
-echo 6. test-headless - Run headless-safe tests
-echo 7. test-e2e      - Run Playwright E2E tests
-echo 8. test-all     - Run all test suites
-echo 9. clean         - Remove build artifacts
+echo 3. bot           - Build reference bot
+echo 4. build-all     - Build WASM, Server, and Bot
+echo 5. dev           - Run server in dev mode
+echo 6. test          - Run all tests with race detector
+echo 7. test-headless - Run headless-safe tests
+echo 8. test-e2e      - Run Playwright E2E tests
+echo 9. test-all     - Run all test suites
+echo c. clean         - Remove build artifacts
 echo 0. exit
-set /p choice="Select an option (0-9): "
+set /p choice="Select an option: "
 
 if "%choice%"=="1" goto wasm
 if "%choice%"=="2" goto server
-if "%choice%"=="3" goto build_all
-if "%choice%"=="4" goto dev
-if "%choice%"=="5" goto test
-if "%choice%"=="6" goto test_headless
-if "%choice%"=="7" goto test_e2e
-if "%choice%"=="8" goto test_all
-if "%choice%"=="9" goto clean
+if "%choice%"=="3" goto bot
+if "%choice%"=="4" goto build_all
+if "%choice%"=="5" goto dev
+if "%choice%"=="6" goto test
+if "%choice%"=="7" goto test_headless
+if "%choice%"=="8" goto test_e2e
+if "%choice%"=="9" goto test_all
+if /i "%choice%"=="c" goto clean
 if "%choice%"=="0" exit
 goto menu
 
@@ -60,14 +62,23 @@ goto menu
 :server
 if not exist "bin" mkdir "bin"
 echo Building Server...
-go build -o bin/tank-server.exe ./cmd/server/
+go build -o bin\tank-server.exe ./cmd/server/
 echo Server build complete: bin\tank-server.exe
+pause
+goto menu
+
+:bot
+if not exist "bin" mkdir "bin"
+echo Building Bot...
+go build -o bin\tank-bot.exe ./cmd/bot-go/
+echo Bot build complete: bin\tank-bot.exe
 pause
 goto menu
 
 :build_all
 call :wasm
 call :server
+call :bot
 echo All builds complete.
 pause
 goto menu

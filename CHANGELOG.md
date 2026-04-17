@@ -1,8 +1,11 @@
 ## Changelog
 
-### 0.9.1 - 2026-04-17 — Windows build.bat
+### 0.9.1 - 2026-04-17 — Windows build.bat + bot build target
 
-- **`build.bat`**: Windows batch script mirroring the Makefile targets — `wasm`, `server`, `build-all`, `dev`, `test`, `test-headless`, `test-e2e`, `test-all`, `clean`. Interactive menu for convenience.
+- **`build.bat`**: Windows batch script mirroring Makefile targets — `wasm`, `server`, `bot`, `build-all`, `dev`, `test`, `test-headless`, `test-e2e`, `test-all`, `clean`. Interactive menu for convenience.
+- **`bot` build target**: Added to both Makefile (`bin/tank-bot`) and build.bat (`bin\tank-bot.exe`). Included in `build-all`.
+- **`.gitignore`**: Added `bot-go` / `bot-go.exe` to prevent committed binaries.
+- **Cleanup**: Removed accidentally committed `bot-go` binary (9MB) from repo root.
 
 ### 0.9.0 - 2026-04-17 — Wave 9: Bot API & VS AI Mode
 

@@ -1,4 +1,4 @@
-.PHONY: wasm wasm-size serve dev copy-font copy-wasm-exec copy-web-fonts clean server build-all test test-e2e test-wasm test-headless test-all
+.PHONY: wasm wasm-size serve dev copy-font copy-wasm-exec copy-web-fonts clean server bot build-all test test-e2e test-wasm test-headless test-all
 
 copy-font:
 	@mkdir -p internal/assets/fonts
@@ -22,8 +22,11 @@ wasm-size: wasm
 server:
 	go build -o bin/tank-server ./cmd/server/
 
-build-all: server wasm
-	@echo "Build complete: bin/tank-server + web/game.wasm"
+bot:
+	go build -o bin/tank-bot ./cmd/bot-go/
+
+build-all: server bot wasm
+	@echo "Build complete: bin/tank-server + bin/tank-bot + web/game.wasm"
 
 serve:
 	cd web && python3 -m http.server 8081
