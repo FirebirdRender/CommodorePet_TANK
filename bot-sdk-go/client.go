@@ -3,6 +3,7 @@ package botsdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"sync"
@@ -11,14 +12,25 @@ import (
 	"github.com/coder/websocket"
 )
 
+// ErrSendBufferFull is returned by SendInput / SendPlayAgain when the outgoing
+// websocket send buffer is full. This surfaces writer-side backpressure to the
+// caller instead of blocking the goroutine invoking the send, which — when
+// called from inside a read-loop callback (OnTick / OnTickDelta) — would
+// otherwise deadlock the client by preventing the read loop from draining new
+// server messages.
+//
+// Callers (typically bots) should treat this as "input dropped; try again
+// next tick or back off" rather than as a fatal error.
+var ErrSendBufferFull = errors.New("bot-sdk: send buffer full")
+
 // Client connects to a NetTank server and handles the bot protocol.
 type Client struct {
 	// configuration
-	ServerURL   string
-	RoomCode    string
-	PlayerID    int
-	Token       string
-	PlayerName  string
+	ServerURL  string
+	RoomCode   string
+	PlayerID   int
+	Token      string
+	PlayerName string
 
 	// callbacks (user sets these)
 	OnGameStart    func(msg *GameStartPayload)
@@ -157,7 +169,10 @@ func (c *Client) Close() {
 	})
 }
 
-// writePump handles outgoing messages from sendCh.
+// writePump handles outgoing messages from sendCh by writing them directly
+// to the websocket. It must NOT call sendRaw, because sendRaw enqueues into
+// sendCh — doing so would create an infinite re-enqueue loop where bytes
+// never actually reach conn.Write.
 func (c *Client) writePump() {
 	for {
 		select {
@@ -165,7 +180,17 @@ func (c *Client) writePump() {
 			if msg == nil {
 				return
 			}
-			if err := c.sendRaw(msg); err != nil {
+			c.mu.Lock()
+			conn := c.conn
+			connected := c.connected
+			c.mu.Unlock()
+			if !connected || conn == nil {
+				return
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			err := conn.Write(ctx, websocket.MessageText, msg)
+			cancel()
+			if err != nil {
 				return
 			}
 		case <-c.done:
@@ -208,6 +233,8 @@ func (c *Client) sendRaw(data []byte) error {
 		return nil
 	case <-c.done:
 		return fmt.Errorf("client closed")
+	default:
+		return ErrSendBufferFull
 	}
 }
 

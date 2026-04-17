@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -16,7 +17,6 @@ import (
 )
 
 func main() {
-	// Parse command-line flags
 	serverURL := flag.String("server", "ws://localhost:8080/ws", "WebSocket server URL")
 	roomCode := flag.String("room", "", "Room code (auto-create if not provided)")
 	playerName := flag.String("name", "CPU", "Bot player name")
@@ -24,7 +24,6 @@ func main() {
 	playerID := flag.Int("player-id", 1, "Player ID (1 or 2)")
 	flag.Parse()
 
-	// If no room/token provided, create one via HTTP API
 	var rcode string
 	var pid int
 	var tok string
@@ -44,21 +43,64 @@ func main() {
 		tok = *token
 	}
 
-	// Connect using bot-sdk-go client
 	client := botsdk.NewClient(*serverURL, rcode, pid, tok, *playerName)
 
 	var botState *BotState
+	var tickCount uint64
+	var droppedInputs uint64
 
 	client.OnGameStart = func(msg *botsdk.GameStartPayload) {
-		log.Printf("Game start - difficulty: %d, size: %dx%d, your_player_id=%d", msg.Difficulty, len(msg.Grid[0]), len(msg.Grid), msg.YourPlayerID)
+		log.Printf("Game start - difficulty: %d, size: %dx%d, your_player_id=%d",
+			msg.Difficulty, len(msg.Grid[0]), len(msg.Grid), msg.YourPlayerID)
 		botState = NewBotState(msg.YourPlayerID, msg.Difficulty, len(msg.Grid[0]), len(msg.Grid))
 		botState.LoadKeyframe(msg.Grid)
+		tickCount = 0
+		droppedInputs = 0
+	}
+
+	shouldLog := func(n uint64) bool {
+		return n < 10 || n%30 == 0
+	}
+
+	logTick := func(source string, tick uint64, tanks [2]botsdk.TankInfo, actions []InputAction) {
+		if botState == nil || !shouldLog(tickCount) {
+			return
+		}
+		var me, foe botsdk.TankInfo
+		for _, t := range tanks {
+			if t.PlayerID == botState.MyID {
+				me = t
+			} else {
+				foe = t
+			}
+		}
+		actStr := "none"
+		if len(actions) > 0 {
+			parts := make([]string, 0, len(actions))
+			for _, a := range actions {
+				parts = append(parts, a.Key+"/"+a.Action)
+			}
+			actStr = strings.Join(parts, ",")
+		}
+		log.Printf("[t%d %s n=%d] me=(%d,%d) act=%v sh=%d mi=%d foe=(%d,%d) act=%v pend=%s | %s",
+			tick, source, tickCount,
+			me.X, me.Y, me.Active, me.ShotsLeft, me.MinesLeft,
+			foe.X, foe.Y, foe.Active,
+			botState.PendingDesc(),
+			actStr)
 	}
 
 	sendActions := func(tick uint64, actions []InputAction) {
 		for _, a := range actions {
 			if err := client.SendInput(tick, a.Key, a.Action); err != nil {
-				log.Printf("Send input error (%s/%s): %v", a.Key, a.Action, err)
+				if errors.Is(err, botsdk.ErrSendBufferFull) {
+					droppedInputs++
+					if droppedInputs%10 == 1 {
+						log.Printf("Send buffer full tick=%d (%s/%s) dropped_total=%d", tick, a.Key, a.Action, droppedInputs)
+					}
+					continue
+				}
+				log.Printf("Send input error tick=%d (%s/%s): %v", tick, a.Key, a.Action, err)
 			}
 		}
 	}
@@ -67,16 +109,22 @@ func main() {
 		if botState == nil {
 			return
 		}
+		tickCount++
 		botState.LoadKeyframe(msg.Grid)
-		sendActions(msg.Tick, botState.Decide(msg.Tanks))
+		actions := botState.Decide(msg.Tick, msg.Tanks)
+		logTick("kf", msg.Tick, msg.Tanks, actions)
+		sendActions(msg.Tick, actions)
 	}
 
 	client.OnTickDelta = func(msg *botsdk.TickDeltaPayload) {
 		if botState == nil {
 			return
 		}
+		tickCount++
 		botState.ApplyDelta(msg.ChangedCells)
-		sendActions(msg.Tick, botState.Decide(msg.Tanks))
+		actions := botState.Decide(msg.Tick, msg.Tanks)
+		logTick("dl", msg.Tick, msg.Tanks, actions)
+		sendActions(msg.Tick, actions)
 	}
 
 	client.OnRoundOver = func(msg *botsdk.RoundOverPayload) {
@@ -84,8 +132,8 @@ func main() {
 	}
 
 	client.OnGameOver = func(msg *botsdk.GameOverPayload) {
-		log.Printf("Game over - winner: %d (final: P1 %d, P2 %d)", msg.Winner, msg.FinalWins[0], msg.FinalWins[1])
-		// Send play_again message
+		log.Printf("Game over - winner: %d (final: P1 %d, P2 %d) dropped_inputs=%d",
+			msg.Winner, msg.FinalWins[0], msg.FinalWins[1], droppedInputs)
 		if err := client.SendPlayAgain(); err != nil {
 			log.Printf("Send play_again error: %v", err)
 		}
@@ -101,7 +149,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Run the client loop
 	ctx := context.Background()
 	if err := client.Connect(ctx); err != nil {
 		log.Fatalf("Connect error: %v", err)
@@ -112,15 +159,12 @@ func main() {
 	}
 }
 
-// createRoomViaAPI creates a room via the HTTP API
 func createRoomViaAPI(serverURL, playerName string) (roomCode string, playerID int, token string, err error) {
-	// Parse server URL to get base HTTP URL
 	u, err := url.Parse(serverURL)
 	if err != nil {
 		return "", 0, "", fmt.Errorf("parse server URL: %w", err)
 	}
 
-	// Change ws:// to http://
 	var httpScheme string
 	if u.Scheme == "ws" {
 		httpScheme = "http"
@@ -131,8 +175,6 @@ func createRoomViaAPI(serverURL, playerName string) (roomCode string, playerID i
 	}
 
 	httpURL := fmt.Sprintf("%s://%s/api/room", httpScheme, u.Host)
-
-	// POST to /api/room with vs_ai=true
 	body := fmt.Sprintf(`{"difficulty":5,"player_name":"%s","vs_ai":true}`, playerName)
 
 	req, err := http.NewRequest("POST", httpURL, strings.NewReader(body))
@@ -141,19 +183,17 @@ func createRoomViaAPI(serverURL, playerName string) (roomCode string, playerID i
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	httpClient := &http.Client{Timeout: 10 * time.Second}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", 0, "", fmt.Errorf("do request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// Check response status
 	if resp.StatusCode != http.StatusOK {
 		return "", 0, "", fmt.Errorf("API error: %d", resp.StatusCode)
 	}
 
-	// Parse response
 	var result struct {
 		RoomCode string `json:"room_code"`
 		PlayerID int    `json:"player_id"`

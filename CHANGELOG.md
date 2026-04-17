@@ -1,5 +1,25 @@
 ## Changelog
 
+### 0.9.4 - 2026-04-17 — Bot AI: closed-loop SM + writePump fix + grid-aware movement
+
+**Bug Fixes — bot connected and looked alive in 0.9.3 logs but never actually delivered input to the server, then once that was fixed, got stuck on its own barrel and oscillated.** Six independent bugs across the SDK and AI:
+
+- **`writePump` re-enqueued instead of writing (root cause).** `bot-sdk-go/client.go` had a `writePump` goroutine that read from `sendCh` and then called `sendRaw(msg)` — which itself enqueues into `sendCh`. The result was an infinite re-enqueue loop on the same channel; **no bot input ever reached the websocket** in 0.9.3. The match logs showed the AI "deciding" but the server saw no `KeyDown`/`KeyUp` traffic. Fix: `writePump` now writes directly via `conn.Write(ctx, websocket.MessageText, msg)`, with `ErrSendBufferFull` returned from `sendRaw` when the buffered channel is full (non-blocking send so a slow socket can never block the AI tick).
+- **Closed-loop state machine.** `cmd/bot-go/ai.go` `Decide` was previously open-loop: it emitted `{key, down}` every tick the bot wanted to advance, with no concept of whether the previous action had landed. Per the original PET semantics ("press/release key, wait to see their desired/reported position/status from the server change, and only choose a new action if the previous one was successful"), `Decide` now tracks a `pending` action (`pendingMove` / `pendingFire` / `pendingMine`) with the pre-action state snapshot (`beforeX/Y/Dir/Shots/Mines`) and an `emittedTick`. Each tick first calls `checkAck` against the latest `TankInfo` — only when the server-reported state actually changes (or the per-action timeout fires) does the bot pick a new action. `pendingMove` acks on **moved OR rotated**, since the engine treats a perpendicular keypress as a free in-place rotation (`engine/game.go:101-130 ProcessMovement`).
+- **LOS-aware fire.** `canFireAligned` now walks the grid between bot and enemy via `hasLOS`, refusing to fire through walls / barrels / mines / wreckage. Combined with strict same-row / same-column alignment, this stops the bot wasting ammo at unreachable targets.
+- **Face-before-fire.** When LOS is clear but `my.Dir != desiredFireDir`, the bot emits a single rotation tap (a perpendicular keypress that the engine resolves as in-place rotation, no step) **before** firing. This eliminates "fire in wrong direction" wasted shots that 0.9.3 exhibited.
+- **Grid-aware movement with own-barrel exception.** `moveTowardEnemy` now checks the destination cell via `isWall` and falls back to a perpendicular axis when blocked. Critical engine fact: **own barrel never blocks own tank movement** — the engine vacates the barrel cell on rotation before stepping. The previous draft of `isWall` treated the own-barrel cell as solid, so the bot was permanently stuck at spawn (37,10) with `CellBarrel2=6` at (36,10). Fix: `isWall` skips `cellBarrel1` if `MyID==1`, `cellBarrel2` if `MyID==2`. After the fix the runtime test shows steady ~1.85 cells/sec at difficulty 5 (37,10 → 24,10 in 7s).
+- **2-tick desired-direction hysteresis + `commitMove` chokepoint.** Without hysteresis the bot flip-flopped left/right when the enemy crossed its row/column boundary, generating new `pending` entries that timed out. `desiredStableTicks < 2` now blocks committing a new direction unless that key is already held. The `commitMove(tick, my, key)` chokepoint also early-returns if `bs.heldMove == key`, preventing the previous bug where re-emitting the same `{key, down}` every tick reset `pending.beforeX/Dir` and the ack window never fired.
+
+**Diagnostics:**
+- `cmd/bot-go/main.go` tracks `tickCount` and `droppedInputs` (incremented on `ErrSendBufferFull` from `sendRaw`), logged on disconnect.
+- `bot-sdk-go/client.go` exports `ErrSendBufferFull` for SDK consumers.
+
+**Test coverage:**
+- New `server/bot_runtime_test.go` `TestBot_RuntimeBotInputAffectsState` spawns the real `bin/tank-bot` subprocess against an in-process server and asserts that the bot's `TankInfo.X/Y` actually changes. This is the missing integration test that would have caught both the `writePump` bug in 0.9.3 and the own-barrel-stuck bug introduced mid-0.9.4. Set `TANK_BOT_BIN=/path/to/tank-bot` to point at a custom binary.
+
+**Files changed:** `bot-sdk-go/client.go`, `cmd/bot-go/ai.go`, `cmd/bot-go/main.go`, `server/bot_runtime_test.go` (new), `README.md`, `CHANGELOG.md`.
+
 ### 0.9.3 - 2026-04-17 — Bot AI: single-key-per-tick + cell-enum + alignment fixes
 
 **Bug Fixes — bot connected, fired harmlessly, never moved, lost 0-3 every match.** Three independent input-contract bugs in `cmd/bot-go/ai.go`:

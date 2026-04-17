@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"math/rand"
 
 	botsdk "github.com/FirebirdRender/CommodorePet_TANK/bot-sdk-go"
@@ -11,8 +12,44 @@ type InputAction struct {
 	Action string
 }
 
-// Engine cell type values (mirrors engine/constants.go — 1-indexed enum).
-const cellEmpty = 1
+const (
+	cellEmpty   = 1
+	cellBarrel1 = 5
+	cellBarrel2 = 6
+)
+
+type pendingKind int
+
+const (
+	pendingNone pendingKind = iota
+	pendingMove
+	pendingFire
+	pendingMine
+)
+
+func (pk pendingKind) String() string {
+	switch pk {
+	case pendingMove:
+		return "move"
+	case pendingFire:
+		return "fire"
+	case pendingMine:
+		return "mine"
+	default:
+		return "idle"
+	}
+}
+
+type pending struct {
+	kind        pendingKind
+	key         string
+	emittedTick uint64
+	beforeX     int
+	beforeY     int
+	beforeDir   int
+	beforeShots int
+	beforeMines int
+}
 
 type BotState struct {
 	MyID       int
@@ -20,13 +57,26 @@ type BotState struct {
 	GridW      int
 	GridH      int
 
-	// Persistent grid — keyframe loads it, deltas patch cells in place.
 	grid [][]int
 
+	pending pending
+
+	heldMove string
+	heldFire bool
+	heldMine bool
+
+	// Hysteresis for movement: require the same desired direction to be picked
+	// for hysteresisTicks consecutive Decide() calls before committing to it.
+	// Eliminates the per-tick flip-flop that arises when dx and dy are nearly
+	// equal and one becomes blocked, causing primary/perpendicular swap.
+	lastDesiredDir     string
+	desiredStableTicks int
+
+	lastLogLine string
 	decideCount int
 }
 
-func NewBotState(playerID, difficulty int, gridW, gridH int) *BotState {
+func NewBotState(playerID, difficulty, gridW, gridH int) *BotState {
 	bs := &BotState{
 		MyID:       playerID,
 		Difficulty: difficulty,
@@ -63,130 +113,388 @@ func (bs *BotState) ApplyDelta(changes []botsdk.CellChange) {
 	}
 }
 
-// Decide returns the inputs to send this tick.
-//
-// Original PET semantics (no key repeat, single-key input): the server consumes
-// one action per tick and treats every keypress as a discrete event. The bot
-// must therefore choose ONE logical input per tick — either move one cell, or
-// fire one shot, or drop one mine. Movement requires re-sending the direction
-// key every tick the bot wants to advance; fire/mine are press+release within
-// one tick to produce exactly one action.
-//
-// Priority: fire when aligned with an active enemy > drop mine when adjacent >
-// move toward enemy.
-func (bs *BotState) Decide(tanks [2]botsdk.TankInfo) []InputAction {
-	bs.decideCount++
-	myTank, enemyTank := bs.findTanks(tanks)
+const (
+	moveAckTimeoutTicks = 30
+	fireAckTimeoutTicks = 10
+	mineAckTimeoutTicks = 10
+	hysteresisTicks     = 2
+)
 
-	if myTank == nil || !myTank.Active {
+// Direction constants mirror engine/constants.go; the SDK's TankInfo.Dir
+// carries the engine's int value. Local copy avoids importing the engine
+// package into the bot binary.
+const (
+	dirUp    = 1
+	dirDown  = 2
+	dirLeft  = 3
+	dirRight = 4
+)
+
+func dirToward(myX, myY, exX, exY int) int {
+	dx := exX - myX
+	dy := exY - myY
+	if dx == 0 && dy == 0 {
+		return 0
+	}
+	if abs(dx) >= abs(dy) {
+		if dx > 0 {
+			return dirRight
+		}
+		if dx < 0 {
+			return dirLeft
+		}
+	}
+	if dy > 0 {
+		return dirDown
+	}
+	if dy < 0 {
+		return dirUp
+	}
+	return 0
+}
+
+func dirToKey(d int) string {
+	switch d {
+	case dirUp:
+		return "up"
+	case dirDown:
+		return "down"
+	case dirLeft:
+		return "left"
+	case dirRight:
+		return "right"
+	default:
+		return ""
+	}
+}
+
+// Decide implements the closed-loop state machine:
+//   - If an action is pending, check for ack (expected state delta) and either
+//     clear pending + emit a release for any still-held key, or on timeout
+//     release + reset. Until one of those fires, emit nothing.
+//   - If idle, choose one intent (fire > mine > move) and emit exactly one
+//     key-down event, recording what we expect to change.
+//
+// This enforces the original PET "one action at a time, wait for confirmation"
+// contract and keeps outbound rate well under the server's 120/sec input-flood
+// guard by never emitting more than one event per tick.
+func (bs *BotState) Decide(tick uint64, tanks [2]botsdk.TankInfo) []InputAction {
+	bs.decideCount++
+	my, enemy := bs.findTanks(tanks)
+
+	if my == nil || !my.Active {
+		if bs.pending.kind != pendingNone || bs.heldMove != "" || bs.heldFire || bs.heldMine {
+			return bs.releaseAllHeld("tank_inactive")
+		}
 		return nil
 	}
 
-	if enemyTank != nil && enemyTank.Active && bs.canFireAligned(myTank, enemyTank) {
-		return []InputAction{
-			{Key: "fire", Action: "down"},
-			{Key: "fire", Action: "up"},
+	if bs.pending.kind != pendingNone {
+		if acted, release := bs.checkAck(my, tick); acted {
+			return release
 		}
 	}
 
-	if enemyTank != nil && enemyTank.Active && myTank.MinesLeft > 0 {
-		dist := abs(myTank.X-enemyTank.X) + abs(myTank.Y-enemyTank.Y)
-		if dist < 3 && rand.Float64() < 0.05 {
-			return []InputAction{
-				{Key: "mine", Action: "down"},
-				{Key: "mine", Action: "up"},
-			}
-		}
+	if bs.pending.kind != pendingNone {
+		return nil
 	}
 
-	var desiredMove string
-	if enemyTank != nil && enemyTank.Active {
-		desiredMove = bs.moveTowardEnemy(myTank, enemyTank)
-	} else {
-		desiredMove = bs.fallbackMove(myTank.X, myTank.Y)
-	}
-
-	if desiredMove != "" {
-		return []InputAction{{Key: desiredMove, Action: "down"}}
-	}
-
-	return nil
+	return bs.startNewAction(tick, my, enemy)
 }
 
-func (bs *BotState) findTanks(tanks [2]botsdk.TankInfo) (myTank, enemyTank *botsdk.TankInfo) {
+func (bs *BotState) checkAck(my *botsdk.TankInfo, tick uint64) (acted bool, release []InputAction) {
+	p := bs.pending
+	age := tick - p.emittedTick
+
+	switch p.kind {
+	case pendingMove:
+		moved := my.X != p.beforeX || my.Y != p.beforeY
+		rotated := my.Dir != p.beforeDir
+		if moved || rotated {
+			bs.clearPending("move_ack")
+			if bs.heldMove != "" {
+				key := bs.heldMove
+				bs.heldMove = ""
+				return true, []InputAction{{Key: key, Action: "up"}}
+			}
+			return true, nil
+		}
+		if age >= moveAckTimeoutTicks {
+			bs.clearPending("move_timeout")
+			return true, bs.releaseAllHeld("move_timeout")
+		}
+	case pendingFire:
+		fired := my.ShotsLeft < p.beforeShots
+		if fired {
+			bs.clearPending("fire_ack")
+			if bs.heldFire {
+				bs.heldFire = false
+				return true, []InputAction{{Key: "fire", Action: "up"}}
+			}
+			return true, nil
+		}
+		if age >= fireAckTimeoutTicks {
+			bs.clearPending("fire_timeout")
+			return true, bs.releaseAllHeld("fire_timeout")
+		}
+	case pendingMine:
+		dropped := my.MinesLeft < p.beforeMines
+		if dropped {
+			bs.clearPending("mine_ack")
+			if bs.heldMine {
+				bs.heldMine = false
+				return true, []InputAction{{Key: "mine", Action: "up"}}
+			}
+			return true, nil
+		}
+		if age >= mineAckTimeoutTicks {
+			bs.clearPending("mine_timeout")
+			return true, bs.releaseAllHeld("mine_timeout")
+		}
+	}
+	return false, nil
+}
+
+func (bs *BotState) startNewAction(tick uint64, my, enemy *botsdk.TankInfo) []InputAction {
+	if bs.heldFire {
+		bs.heldFire = false
+		return []InputAction{{Key: "fire", Action: "up"}}
+	}
+	if bs.heldMine {
+		bs.heldMine = false
+		return []InputAction{{Key: "mine", Action: "up"}}
+	}
+
+	if enemy != nil && enemy.Active && bs.canFireWithLOS(my, enemy) {
+		desiredFireDir := dirToward(my.X, my.Y, enemy.X, enemy.Y)
+		if desiredFireDir != 0 && my.Dir != desiredFireDir {
+			key := dirToKey(desiredFireDir)
+			if key != "" {
+				return bs.commitMove(tick, my, key)
+			}
+		}
+		bs.pending = pending{
+			kind:        pendingFire,
+			key:         "fire",
+			emittedTick: tick,
+			beforeX:     my.X,
+			beforeY:     my.Y,
+			beforeDir:   my.Dir,
+			beforeShots: my.ShotsLeft,
+			beforeMines: my.MinesLeft,
+		}
+		bs.heldFire = true
+		return []InputAction{{Key: "fire", Action: "down"}}
+	}
+
+	if enemy != nil && enemy.Active && my.MinesLeft > 0 {
+		dist := abs(my.X-enemy.X) + abs(my.Y-enemy.Y)
+		if dist < 3 && rand.Float64() < 0.05 {
+			bs.pending = pending{
+				kind:        pendingMine,
+				key:         "mine",
+				emittedTick: tick,
+				beforeX:     my.X,
+				beforeY:     my.Y,
+				beforeDir:   my.Dir,
+				beforeShots: my.ShotsLeft,
+				beforeMines: my.MinesLeft,
+			}
+			bs.heldMine = true
+			return []InputAction{{Key: "mine", Action: "down"}}
+		}
+	}
+
+	var desired string
+	if enemy != nil && enemy.Active {
+		desired = bs.moveTowardEnemy(my, enemy)
+	} else {
+		desired = bs.fallbackMove(my.X, my.Y)
+	}
+	if desired == "" {
+		bs.lastDesiredDir = ""
+		bs.desiredStableTicks = 0
+		return nil
+	}
+
+	if desired == bs.lastDesiredDir {
+		bs.desiredStableTicks++
+	} else {
+		bs.lastDesiredDir = desired
+		bs.desiredStableTicks = 1
+	}
+	if bs.desiredStableTicks < hysteresisTicks && bs.heldMove != desired {
+		return nil
+	}
+
+	return bs.commitMove(tick, my, desired)
+}
+
+// commitMove emits the key-down for `key`, releasing any other held move key
+// first. Records pending so checkAck() can confirm via either position OR
+// direction change (rotation-only inputs do not move the tank).
+//
+// If `key` is already held, returns nil with no state change — the prior
+// pending entry remains the source of truth and will resolve via ack/timeout.
+// Re-emitting a held key would (a) duplicate input and (b) reset the ack
+// window every tick, masking timeouts forever.
+func (bs *BotState) commitMove(tick uint64, my *botsdk.TankInfo, key string) []InputAction {
+	if bs.heldMove == key {
+		return nil
+	}
+	if bs.heldMove != "" {
+		old := bs.heldMove
+		bs.heldMove = ""
+		return []InputAction{{Key: old, Action: "up"}}
+	}
+	bs.pending = pending{
+		kind:        pendingMove,
+		key:         key,
+		emittedTick: tick,
+		beforeX:     my.X,
+		beforeY:     my.Y,
+		beforeDir:   my.Dir,
+		beforeShots: my.ShotsLeft,
+		beforeMines: my.MinesLeft,
+	}
+	bs.heldMove = key
+	return []InputAction{{Key: key, Action: "down"}}
+}
+
+func (bs *BotState) clearPending(reason string) {
+	bs.lastLogLine = fmt.Sprintf("pending_cleared=%s kind=%s", reason, bs.pending.kind)
+	bs.pending = pending{}
+}
+
+func (bs *BotState) releaseAllHeld(reason string) []InputAction {
+	out := make([]InputAction, 0, 3)
+	if bs.heldFire {
+		out = append(out, InputAction{Key: "fire", Action: "up"})
+		bs.heldFire = false
+	}
+	if bs.heldMine {
+		out = append(out, InputAction{Key: "mine", Action: "up"})
+		bs.heldMine = false
+	}
+	if bs.heldMove != "" {
+		out = append(out, InputAction{Key: bs.heldMove, Action: "up"})
+		bs.heldMove = ""
+	}
+	if len(out) > 0 {
+		bs.lastLogLine = fmt.Sprintf("release_all=%s count=%d", reason, len(out))
+	}
+	return out
+}
+
+func (bs *BotState) findTanks(tanks [2]botsdk.TankInfo) (my, enemy *botsdk.TankInfo) {
 	for i := range tanks {
 		t := tanks[i]
 		if t.PlayerID == bs.MyID {
-			my := t
-			myTank = &my
+			m := t
+			my = &m
 		} else {
-			en := t
-			enemyTank = &en
+			e := t
+			enemy = &e
 		}
 	}
 	return
 }
 
-func (bs *BotState) canFireAligned(my, enemy *botsdk.TankInfo) bool {
+// canFireWithLOS returns true iff shots remain, we're strictly same-row or
+// same-column with the enemy, and every cell strictly between us is empty
+// floor. Walls, barrels, wreckage, and mines all block the shot.
+func (bs *BotState) canFireWithLOS(my, enemy *botsdk.TankInfo) bool {
 	if my.ShotsLeft <= 0 {
 		return false
 	}
-	// Strict same-row or same-column alignment only — diagonals don't count.
-	return my.Y == enemy.Y || my.X == enemy.X
+	if my.Y == enemy.Y {
+		y := my.Y
+		x1, x2 := my.X, enemy.X
+		if x1 > x2 {
+			x1, x2 = x2, x1
+		}
+		for x := x1 + 1; x < x2; x++ {
+			if !bs.isOpen(x, y) {
+				return false
+			}
+		}
+		return true
+	}
+	if my.X == enemy.X {
+		x := my.X
+		y1, y2 := my.Y, enemy.Y
+		if y1 > y2 {
+			y1, y2 = y2, y1
+		}
+		for y := y1 + 1; y < y2; y++ {
+			if !bs.isOpen(x, y) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+func (bs *BotState) isOpen(x, y int) bool {
+	if y < 0 || y >= len(bs.grid) {
+		return false
+	}
+	if x < 0 || x >= len(bs.grid[y]) {
+		return false
+	}
+	return bs.grid[y][x] == cellEmpty
 }
 
 func (bs *BotState) moveTowardEnemy(my, enemy *botsdk.TankInfo) string {
 	dx := enemy.X - my.X
 	dy := enemy.Y - my.Y
 
-	var moveKey string
+	var primary string
 	if abs(dx) > abs(dy) {
 		if dx > 0 {
-			moveKey = "right"
+			primary = "right"
 		} else {
-			moveKey = "left"
+			primary = "left"
 		}
 	} else if dy != 0 {
 		if dy > 0 {
-			moveKey = "down"
+			primary = "down"
 		} else {
-			moveKey = "up"
+			primary = "up"
 		}
 	} else if dx != 0 {
 		if dx > 0 {
-			moveKey = "right"
+			primary = "right"
 		} else {
-			moveKey = "left"
+			primary = "left"
 		}
 	} else {
-		// On top of enemy — pick any open direction.
 		return bs.fallbackMove(my.X, my.Y)
 	}
 
-	if bs.isWall(my.X, my.Y, moveKey) {
-		// Try perpendicular.
-		var perpKey string
-		if moveKey == "up" || moveKey == "down" {
-			if dx >= 0 {
-				perpKey = "right"
-			} else {
-				perpKey = "left"
-			}
+	if !bs.isWall(my.X, my.Y, primary) {
+		return primary
+	}
+
+	var perp string
+	if primary == "up" || primary == "down" {
+		if dx >= 0 {
+			perp = "right"
 		} else {
-			if dy >= 0 {
-				perpKey = "down"
-			} else {
-				perpKey = "up"
-			}
+			perp = "left"
 		}
-		if !bs.isWall(my.X, my.Y, perpKey) {
-			return perpKey
+	} else {
+		if dy >= 0 {
+			perp = "down"
+		} else {
+			perp = "up"
 		}
-		// Both blocked — fallback search.
-		return bs.fallbackMove(my.X, my.Y)
 	}
-
-	return moveKey
+	if !bs.isWall(my.X, my.Y, perp) {
+		return perp
+	}
+	return bs.fallbackMove(my.X, my.Y)
 }
 
 func (bs *BotState) isWall(x, y int, direction string) bool {
@@ -215,14 +523,26 @@ func (bs *BotState) isWall(x, y int, direction string) bool {
 	default:
 		return true
 	}
-
 	if nx < 0 || nx >= bs.GridW || ny < 0 || ny >= bs.GridH {
 		return true
 	}
-	if ny < len(bs.grid) && nx < len(bs.grid[ny]) {
-		// Engine cell types are 1-indexed: CellEmpty=1, CellWall=2, etc.
-		// Any non-empty cell blocks pathing (walls, barrels, wreckage, mines, other tanks).
-		return bs.grid[ny][nx] != cellEmpty
+	if ny >= len(bs.grid) || nx >= len(bs.grid[ny]) {
+		return true
+	}
+	c := bs.grid[ny][nx]
+	if c == cellEmpty {
+		return false
+	}
+	// Own barrel never blocks own tank movement (engine game rule). The first
+	// step of any directional input rotates the tank, vacating the old barrel
+	// cell before the next step occurs, so treating own barrel as walkable
+	// prevents the bot from being trapped against its own barrel cell.
+	myBarrel := cellBarrel1
+	if bs.MyID == 2 {
+		myBarrel = cellBarrel2
+	}
+	if c == myBarrel {
+		return false
 	}
 	return true
 }
@@ -237,6 +557,14 @@ func (bs *BotState) fallbackMove(x, y int) string {
 		}
 	}
 	return ""
+}
+
+func (bs *BotState) PendingDesc() string {
+	p := bs.pending
+	if p.kind == pendingNone {
+		return "idle"
+	}
+	return fmt.Sprintf("%s/%s@%d", p.kind, p.key, p.emittedTick)
 }
 
 func abs(x int) int {
