@@ -210,6 +210,9 @@ func setupStartedMatch(t *testing.T, serverURL string, difficulty int, p1Name, p
 	if joined1.PlayerID != 1 {
 		t.Fatalf("host player_id = %d, want 1", joined1.PlayerID)
 	}
+	if joined1.ProtocolVersion != ProtocolVersion {
+		t.Fatalf("host joined protocol_version = %q, want %q", joined1.ProtocolVersion, ProtocolVersion)
+	}
 
 	c2.send(MsgTypeJoinRoom, JoinRoomMsg{RoomCode: roomCreated.RoomCode, PlayerName: p2Name})
 	joined2 := decodeRaw[JoinedMsg](t, c2.recvExpect(MsgTypeJoined))
@@ -218,6 +221,9 @@ func setupStartedMatch(t *testing.T, serverURL string, difficulty int, p1Name, p
 	}
 	if joined2.OpponentName != p1Name {
 		t.Fatalf("joiner opponent_name = %q, want %q", joined2.OpponentName, p1Name)
+	}
+	if joined2.ProtocolVersion != ProtocolVersion {
+		t.Fatalf("joiner joined protocol_version = %q, want %q", joined2.ProtocolVersion, ProtocolVersion)
 	}
 
 	hostJoinedAfterJoin := decodeRaw[JoinedMsg](t, c1.recvUntil(MsgTypeJoined, 30))

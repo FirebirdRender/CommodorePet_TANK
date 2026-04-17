@@ -4,6 +4,12 @@ import (
 	"encoding/json"
 )
 
+// ProtocolVersion is the wire-protocol version this SDK speaks. Sent on
+// rejoin/join_room and compared against server's ProtocolVersion in JoinedMsg.
+// Mismatch is logged but not fatal (advisory window). Bump in lock-step with
+// server/protocol.go ProtocolVersion on any breaking message-shape change.
+const ProtocolVersion = "1.0.0"
+
 // Message type constants (matching server protocol.go)
 const (
 	MsgTypeInput     = "input"
@@ -29,10 +35,11 @@ type Envelope struct {
 
 // RejoinPayload is sent on initial WebSocket connection.
 type RejoinPayload struct {
-	RoomCode   string `json:"room_code"`
-	PlayerID   int    `json:"player_id"`
-	Token      string `json:"token"`
-	PlayerName string `json:"player_name"`
+	RoomCode              string `json:"room_code"`
+	PlayerID              int    `json:"player_id"`
+	Token                 string `json:"token"`
+	PlayerName            string `json:"player_name"`
+	ClientProtocolVersion string `json:"client_protocol_version,omitempty"`
 }
 
 // InputPayload represents an input message.
@@ -76,11 +83,12 @@ type TickDeltaPayload struct {
 
 // JoinedPayload — received on successful join.
 type JoinedPayload struct {
-	RoomCode     string `json:"room_code"`
-	PlayerID     int    `json:"player_id"`
-	OpponentName string `json:"opponent_name"`
-	IsBot        bool   `json:"is_bot,omitempty"`
-	BotClass     string `json:"bot_class,omitempty"`
+	RoomCode        string `json:"room_code"`
+	PlayerID        int    `json:"player_id"`
+	OpponentName    string `json:"opponent_name"`
+	IsBot           bool   `json:"is_bot,omitempty"`
+	BotClass        string `json:"bot_class,omitempty"`
+	ProtocolVersion string `json:"protocol_version,omitempty"`
 }
 
 // RoundOverPayload — round ended, best of series.

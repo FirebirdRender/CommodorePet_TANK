@@ -1,5 +1,43 @@
 ## Changelog
 
+### 0.9.7 - 2026-04-17 — Phase 6 G-1: Protocol versioning on the wire
+
+**Closes Phase 6 gap G-1.** External bot SDK consumers had no way to detect a protocol drift between their version and the live server — silent breakage was possible across server upgrades. This release stamps a `protocol_version` field on every server-issued `joined`/`rejoin_ack` payload and accepts an optional `client_protocol_version` on `join_room`/`rejoin` payloads.
+
+**Policy:** mismatch is **logged, not rejected**. This is the forward-compatible advisory window. Strict rejection is reserved for a future MAJOR bump and will be announced one MINOR release in advance per the existing §10 policy in `docs/BOT_API.md`.
+
+**Wire format:**
+
+```json
+// server → client
+{"type":"joined","payload":{"room_code":"AB2D","player_id":1,"protocol_version":"1.0.0"}}
+
+// bot → server
+{"type":"rejoin","payload":{"room_code":"AB2D","player_id":2,"token":"...","player_name":"my-bot","client_protocol_version":"1.0.0"}}
+```
+
+**Implementation:**
+- New `ProtocolVersion = "1.0.0"` const in `server/protocol.go` and `bot-sdk-go/protocol.go` (lock-step bump rule documented inline).
+- `JoinedMsg`, `RejoinAckMsg` gained `ProtocolVersion string` (`omitempty`).
+- `JoinRoomMsg`, `RejoinMsg` gained `ClientProtocolVersion string` (`omitempty`).
+- All 4 `JoinedMsg{}` send sites in `ws_handler.go` (lines 201, 300, 343, 347) now stamp the version.
+- `handleRejoin` and `handleJoinRoom` log `client=q server=q (accepting)` on mismatch, never reject.
+- `bot-sdk-go/client.go` sends `ClientProtocolVersion: ProtocolVersion` automatically on every rejoin.
+
+**Tests added (`server/protocol_test.go`):**
+- `TestProtocolVersion_Constant` — non-empty invariant
+- `TestJoinedMsg_StampsProtocolVersion` — server stamp round-trip
+- `TestJoinRoomMsg_AcceptsClientProtocolVersion` — client field round-trip
+- `TestRejoinMsg_AcceptsClientProtocolVersion` — client field round-trip
+- `TestRejoinAckMsg_StampsProtocolVersion` — server stamp round-trip
+- `setupStartedMatch` (server e2e helper) now asserts both `joined1.ProtocolVersion` and `joined2.ProtocolVersion` match `ProtocolVersion`, so every existing e2e test (~10+) implicitly verifies the live-server stamp.
+
+**Verification:** full `go test -race ./... -count=1` green.
+
+**Docs:** `docs/BOT_API.md` §10 expanded with "Wire-format version negotiation" subsection.
+
+**Phase 6 status:** G-1 closed. Next: G-2 (bot-vs-bot E2E — `TestBot_VsBot_FullMatch` with `-race -count=10`).
+
 ### 0.9.6.1 - 2026-04-17 — Engine: spawn wall-lock fix (Phase 6 baseline cleanup)
 
 **Pre-existing flake discovered while preparing Phase 6 G-1 work.** `TestE2EInputAffectsState` (server) and `TestClientInputAffectsState` (client) both intermittently failed (~22% of runs at difficulty 5) with "tank did not move from (X,Y) after trying all 8 directions". Stress test confirmed the failure rate; investigation traced it to a real engine bug, not a test-code bug.

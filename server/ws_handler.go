@@ -172,6 +172,10 @@ func (c *ClientConn) handleRejoin(payload []byte) {
 
 	c.handler.tokens.RemoveToken(msg.Token)
 
+	if msg.ClientProtocolVersion != "" && msg.ClientProtocolVersion != ProtocolVersion {
+		log.Printf("rejoin protocol mismatch: client=%q server=%q (accepting)", msg.ClientProtocolVersion, ProtocolVersion)
+	}
+
 	room := c.hub.GetRoom(entry.RoomCode)
 	if room == nil {
 		c.sendError(ErrCodeRoomNotFound, "room not found")
@@ -199,9 +203,10 @@ func (c *ClientConn) handleRejoin(payload []byte) {
 		} else {
 			opponentName := c.lookupOpponentName(room, entry.PlayerID)
 			c.sendOrLog(MsgTypeJoined, JoinedMsg{
-				RoomCode:     room.Code,
-				PlayerID:     entry.PlayerID,
-				OpponentName: opponentName,
+				RoomCode:        room.Code,
+				PlayerID:        entry.PlayerID,
+				OpponentName:    opponentName,
+				ProtocolVersion: ProtocolVersion,
 			})
 		}
 	}
@@ -297,7 +302,7 @@ func (c *ClientConn) handleCreateRoom(payload []byte) {
 		return
 	}
 
-	c.sendOrLog(MsgTypeJoined, JoinedMsg{RoomCode: room.Code, PlayerID: playerID})
+	c.sendOrLog(MsgTypeJoined, JoinedMsg{RoomCode: room.Code, PlayerID: playerID, ProtocolVersion: ProtocolVersion})
 }
 
 func (c *ClientConn) handleJoinRoom(payload []byte) {
@@ -310,6 +315,10 @@ func (c *ClientConn) handleJoinRoom(payload []byte) {
 	if err := json.Unmarshal(payload, &msg); err != nil {
 		c.sendError(ErrCodeInvalidInput, err.Error())
 		return
+	}
+
+	if msg.ClientProtocolVersion != "" && msg.ClientProtocolVersion != ProtocolVersion {
+		log.Printf("join_room protocol mismatch: client=%q server=%q (accepting)", msg.ClientProtocolVersion, ProtocolVersion)
 	}
 
 	// Validate room code (4 chars, A-Z2-9)
@@ -340,11 +349,11 @@ func (c *ClientConn) handleJoinRoom(payload []byte) {
 	c.handler.registry.SetConn(room.Code, playerID, c)
 
 	opponentName := c.lookupOpponentName(room, playerID)
-	c.sendOrLog(MsgTypeJoined, JoinedMsg{RoomCode: room.Code, PlayerID: playerID, OpponentName: opponentName})
+	c.sendOrLog(MsgTypeJoined, JoinedMsg{RoomCode: room.Code, PlayerID: playerID, OpponentName: opponentName, ProtocolVersion: ProtocolVersion})
 
 	otherConn := c.handler.registry.GetConn(room.Code, otherPlayerID(playerID))
 	if otherConn != nil {
-		otherConn.sendOrLog(MsgTypeJoined, JoinedMsg{RoomCode: room.Code, PlayerID: otherPlayerID(playerID), OpponentName: msg.PlayerName})
+		otherConn.sendOrLog(MsgTypeJoined, JoinedMsg{RoomCode: room.Code, PlayerID: otherPlayerID(playerID), OpponentName: msg.PlayerName, ProtocolVersion: ProtocolVersion})
 	}
 
 	if room.BothPlayersConnected() {

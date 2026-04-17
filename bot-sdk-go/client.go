@@ -96,10 +96,11 @@ func (c *Client) Connect(ctx context.Context) error {
 
 	// Send rejoin message
 	rejoin := RejoinPayload{
-		RoomCode:   c.RoomCode,
-		PlayerID:   c.PlayerID,
-		Token:      c.Token,
-		PlayerName: c.PlayerName,
+		RoomCode:              c.RoomCode,
+		PlayerID:              c.PlayerID,
+		Token:                 c.Token,
+		PlayerName:            c.PlayerName,
+		ClientProtocolVersion: ProtocolVersion,
 	}
 
 	if err := c.sendJSONRaw(ctx, "rejoin", rejoin); err != nil {

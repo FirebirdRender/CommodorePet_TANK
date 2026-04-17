@@ -264,3 +264,52 @@ func TestTickGridDimensions21x40(t *testing.T) {
 		}
 	}
 }
+
+func TestProtocolVersion_Constant(t *testing.T) {
+	if ProtocolVersion == "" {
+		t.Fatalf("ProtocolVersion must not be empty")
+	}
+}
+
+func TestJoinedMsg_StampsProtocolVersion(t *testing.T) {
+	in := JoinedMsg{RoomCode: "ABCD", PlayerID: 1, ProtocolVersion: ProtocolVersion}
+	wrapped, err := WrapMessage(MsgTypeJoined, in)
+	if err != nil {
+		t.Fatalf("WrapMessage: %v", err)
+	}
+	_, payload, err := UnwrapMessage(wrapped)
+	if err != nil {
+		t.Fatalf("UnwrapMessage: %v", err)
+	}
+	var out JoinedMsg
+	if err := json.Unmarshal(payload, &out); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if out.ProtocolVersion != ProtocolVersion {
+		t.Fatalf("ProtocolVersion = %q, want %q", out.ProtocolVersion, ProtocolVersion)
+	}
+}
+
+func TestJoinRoomMsg_AcceptsClientProtocolVersion(t *testing.T) {
+	in := JoinRoomMsg{RoomCode: "ABCD", PlayerName: "bob", ClientProtocolVersion: "0.9.0"}
+	out := roundTripPayload(t, MsgTypeJoinRoom, in)
+	if out.ClientProtocolVersion != "0.9.0" {
+		t.Fatalf("ClientProtocolVersion = %q, want %q", out.ClientProtocolVersion, "0.9.0")
+	}
+}
+
+func TestRejoinMsg_AcceptsClientProtocolVersion(t *testing.T) {
+	in := RejoinMsg{RoomCode: "ABCD", PlayerID: 1, Token: "xyz", PlayerName: "bob", ClientProtocolVersion: ProtocolVersion}
+	out := roundTripPayload(t, MsgTypeRejoin, in)
+	if out.ClientProtocolVersion != ProtocolVersion {
+		t.Fatalf("ClientProtocolVersion round-trip lost: got %q", out.ClientProtocolVersion)
+	}
+}
+
+func TestRejoinAckMsg_StampsProtocolVersion(t *testing.T) {
+	in := RejoinAckMsg{RoomCode: "ABCD", PlayerID: 2, ProtocolVersion: ProtocolVersion}
+	out := roundTripPayload(t, "rejoin_ack", in)
+	if out.ProtocolVersion != ProtocolVersion {
+		t.Fatalf("ProtocolVersion lost on round-trip: got %q", out.ProtocolVersion)
+	}
+}

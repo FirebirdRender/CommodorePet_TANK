@@ -7,6 +7,12 @@ import (
 	"github.com/FirebirdRender/CommodorePet_TANK/engine"
 )
 
+// ProtocolVersion is the wire-protocol version stamped on server-issued
+// JoinedMsg/RejoinAckMsg and accepted (advisory) on client JoinRoomMsg/RejoinMsg.
+// Bump on any breaking change to message shapes. SemVer: MAJOR.MINOR.PATCH.
+// Mismatch is logged but not rejected (forward-compatible advisory window).
+const ProtocolVersion = "1.0.0"
+
 const (
 	MsgTypeInput        = "input"
 	MsgTypeCreateRoom   = "create_room"
@@ -57,8 +63,9 @@ type CreateRoomMsg struct {
 }
 
 type JoinRoomMsg struct {
-	RoomCode   string `json:"room_code"`
-	PlayerName string `json:"player_name"`
+	RoomCode              string `json:"room_code"`
+	PlayerName            string `json:"player_name"`
+	ClientProtocolVersion string `json:"client_protocol_version,omitempty"`
 }
 
 type ReadyMsg struct{}
@@ -82,11 +89,12 @@ type RoomCreatedMsg struct {
 }
 
 type JoinedMsg struct {
-	RoomCode     string `json:"room_code"`
-	PlayerID     int    `json:"player_id"`
-	OpponentName string `json:"opponent_name,omitempty"`
-	IsBot        bool   `json:"is_bot,omitempty"`
-	BotClass     string `json:"bot_class,omitempty"`
+	RoomCode        string `json:"room_code"`
+	PlayerID        int    `json:"player_id"`
+	OpponentName    string `json:"opponent_name,omitempty"`
+	IsBot           bool   `json:"is_bot,omitempty"`
+	BotClass        string `json:"bot_class,omitempty"`
+	ProtocolVersion string `json:"protocol_version,omitempty"`
 }
 
 type GameStartMsg struct {
@@ -125,18 +133,20 @@ type ErrorMsg struct {
 }
 
 type RejoinMsg struct {
-	RoomCode   string `json:"room_code"`
-	PlayerID   int    `json:"player_id"`
-	Token      string `json:"token"`
-	PlayerName string `json:"player_name"`
+	RoomCode              string `json:"room_code"`
+	PlayerID              int    `json:"player_id"`
+	Token                 string `json:"token"`
+	PlayerName            string `json:"player_name"`
+	ClientProtocolVersion string `json:"client_protocol_version,omitempty"`
 }
 
 type RejoinAckMsg struct {
-	RoomCode     string `json:"room_code"`
-	PlayerID     int    `json:"player_id"`
-	OpponentName string `json:"opponent_name,omitempty"`
-	IsBot        bool   `json:"is_bot,omitempty"`
-	BotClass     string `json:"bot_class,omitempty"`
+	RoomCode        string `json:"room_code"`
+	PlayerID        int    `json:"player_id"`
+	OpponentName    string `json:"opponent_name,omitempty"`
+	IsBot           bool   `json:"is_bot,omitempty"`
+	BotClass        string `json:"bot_class,omitempty"`
+	ProtocolVersion string `json:"protocol_version,omitempty"`
 }
 
 type TankState struct {
