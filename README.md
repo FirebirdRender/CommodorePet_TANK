@@ -4,7 +4,7 @@ Faithful recreation of the Commodore PET TANK! game with networked multiplayer v
 
 ## Version
 
-Current: **0.9.0** (Wave 9 - Bot API & VS AI Mode)
+Current: **0.9.1** (Wave 9 - Bot API & VS AI Mode)
 
 ## Quick Start
 

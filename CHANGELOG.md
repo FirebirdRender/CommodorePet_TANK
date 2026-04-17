@@ -1,5 +1,9 @@
 ## Changelog
 
+### 0.9.1 - 2026-04-17 — Windows build.bat
+
+- **`build.bat`**: Windows batch script mirroring the Makefile targets — `wasm`, `server`, `build-all`, `dev`, `test`, `test-headless`, `test-e2e`, `test-all`, `clean`. Interactive menu for convenience.
+
 ### 0.9.0 - 2026-04-17 — Wave 9: Bot API & VS AI Mode
 
 **New:**
