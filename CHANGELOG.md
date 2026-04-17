@@ -6,6 +6,8 @@
 - **`bot` build target**: Added to both Makefile (`bin/tank-bot`) and build.bat (`bin\tank-bot.exe`). Included in `build-all`.
 - **`.gitignore`**: Added `bot-go` / `bot-go.exe` to prevent committed binaries.
 - **Cleanup**: Removed accidentally committed `bot-go` binary (9MB) from repo root.
+- **Fix**: `build.bat` subroutines now use `exit /b` instead of `goto menu` so `build-all` actually chains all three builds (previously `goto menu` inside a `call` prevented return).
+- **Fix**: Both Makefile and build.bat now `mkdir bin` before writing executables into it (`go build` does not auto-create the output directory).
 
 ### 0.9.0 - 2026-04-17 — Wave 9: Bot API & VS AI Mode
 

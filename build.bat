@@ -12,23 +12,29 @@ echo 5. dev           - Run server in dev mode
 echo 6. test          - Run all tests with race detector
 echo 7. test-headless - Run headless-safe tests
 echo 8. test-e2e      - Run Playwright E2E tests
-echo 9. test-all     - Run all test suites
+echo 9. test-all      - Run all test suites
 echo c. clean         - Remove build artifacts
 echo 0. exit
 set /p choice="Select an option: "
 
-if "%choice%"=="1" goto wasm
-if "%choice%"=="2" goto server
-if "%choice%"=="3" goto bot
-if "%choice%"=="4" goto build_all
-if "%choice%"=="5" goto dev
-if "%choice%"=="6" goto test
-if "%choice%"=="7" goto test_headless
-if "%choice%"=="8" goto test_e2e
-if "%choice%"=="9" goto test_all
-if /i "%choice%"=="c" goto clean
+if "%choice%"=="1" call :do_wasm && pause & goto menu
+if "%choice%"=="2" call :do_server && pause & goto menu
+if "%choice%"=="3" call :do_bot && pause & goto menu
+if "%choice%"=="4" call :do_build_all && pause & goto menu
+if "%choice%"=="5" call :do_dev & goto menu
+if "%choice%"=="6" call :do_test && pause & goto menu
+if "%choice%"=="7" call :do_test_headless && pause & goto menu
+if "%choice%"=="8" call :do_test_e2e && pause & goto menu
+if "%choice%"=="9" call :do_test_all && pause & goto menu
+if /i "%choice%"=="c" call :do_clean && pause & goto menu
 if "%choice%"=="0" exit
 goto menu
+
+rem --- Helper subroutines (always exit /b so they return to caller) ---
+
+:ensure_bin
+if not exist "bin" mkdir "bin"
+exit /b
 
 :copy_font
 if not exist "internal\assets\fonts" mkdir "internal\assets\fonts"
@@ -45,7 +51,9 @@ for /f "usebackq tokens=*" %%i in (`go env GOROOT`) do set GOROOT_PATH=%%i
 copy /Y "%GOROOT_PATH%\lib\wasm\wasm_exec.js" "web\wasm_exec.js"
 exit /b
 
-:wasm
+rem --- Build actions ---
+
+:do_wasm
 call :copy_font
 call :copy_wasm_exec
 call :copy_web_fonts
@@ -56,56 +64,52 @@ go build -trimpath -ldflags "-s -w" -o web/game.wasm ./cmd/client/
 set GOOS=
 set GOARCH=
 echo WASM build complete.
-pause
-goto menu
+exit /b
 
-:server
-if not exist "bin" mkdir "bin"
+:do_server
+call :ensure_bin
 echo Building Server...
 go build -o bin\tank-server.exe ./cmd/server/
 echo Server build complete: bin\tank-server.exe
-pause
-goto menu
+exit /b
 
-:bot
-if not exist "bin" mkdir "bin"
+:do_bot
+call :ensure_bin
 echo Building Bot...
 go build -o bin\tank-bot.exe ./cmd/bot-go/
 echo Bot build complete: bin\tank-bot.exe
-pause
-goto menu
+exit /b
 
-:build_all
-call :wasm
-call :server
-call :bot
+:do_build_all
+call :do_wasm
+call :do_server
+call :do_bot
 echo All builds complete.
-pause
-goto menu
+exit /b
 
-:dev
+rem --- Dev / Test actions ---
+
+:do_dev
 call :copy_wasm_exec
 echo Starting dev server (Ctrl+C to stop)...
 go run ./cmd/server/ -addr :8080 -dir web
-goto menu
+exit /b
 
-:test
+:do_test
 echo Running all tests with race detector...
 go test -race ./... -count=1
 echo Tests complete.
-pause
-goto menu
+exit /b
 
-:test_headless
+:do_test_headless
 echo Running headless-safe tests...
 go test -race ./client/... -count=1 -run "TestNewGameState|TestApply|TestReset|TestKeyToDir|TestCellGlyphs|TestBarrel|TestGlyphCache|TestNewRenderer|TestColor|TestDimension|TestNewGameSetsPlayerName|TestExportGameStateNativeNoop|TestAnimTick"
 echo Headless tests complete.
-pause
-goto menu
+exit /b
 
-:test_e2e
+:do_test_e2e
 echo Building before E2E tests...
-call :build_all
+call :do_build_all
 echo Running Playwright E2E tests...
 cd test\e2e
 call npm install
@@ -113,10 +117,9 @@ call npx playwright install chromium
 call npx playwright test
 cd ..\..
 echo E2E tests complete.
-pause
-goto menu
+exit /b
 
-:test_all
+:do_test_all
 echo Running all test suites...
 echo [1/3] Go tests...
 go test -race ./... -count=1
@@ -129,13 +132,11 @@ call npx playwright install chromium
 call npx playwright test
 cd ..\..
 echo All test suites complete.
-pause
-goto menu
+exit /b
 
-:clean
+:do_clean
 if exist "web\game.wasm" del "web\game.wasm"
 if exist "bin" rd /s /q "bin"
 if exist "web\fonts" rd /s /q "web\fonts"
 echo Cleaned build artifacts.
-pause
-goto menu
+exit /b

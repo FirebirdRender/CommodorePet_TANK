@@ -20,9 +20,11 @@ wasm-size: wasm
 	@gzip -c web/game.wasm | wc -c | awk '{exit !($$1 < 5*1048576)}' && echo "PASS: gzipped < 5MB" || echo "FAIL: gzipped >= 5MB"
 
 server:
+	@mkdir -p bin
 	go build -o bin/tank-server ./cmd/server/
 
 bot:
+	@mkdir -p bin
 	go build -o bin/tank-bot ./cmd/bot-go/
 
 build-all: server bot wasm
