@@ -271,13 +271,40 @@ func (api *RoomAPI) handleRoomEvents(w http.ResponseWriter, r *http.Request, cod
 	var lastPlayerCount int
 	var lastState RoomState
 
-	// Initial check
+	// Initial check — if the room already has 2 players at stream-open time
+	// (common in VS AI mode, where the bot is added synchronously during
+	// POST /api/room before the client opens the SSE stream), emit the
+	// appropriate join event immediately. Otherwise the edge-triggered
+	// detection below will never fire because there is no 1→2 transition.
 	room := api.hub.GetRoom(code)
 	if room != nil {
 		room.mu.Lock()
-		lastPlayerCount = room.connectedCountLocked()
+		initialCount := room.connectedCountLocked()
 		lastState = room.State
+		roomCode := room.Code
+		var oppName string
+		var isBot bool
+		if initialCount == 2 {
+			for _, p := range room.Players {
+				if p != nil && p.ID != 1 {
+					oppName = p.Name
+					isBot = p.IsBot
+				}
+			}
+		}
 		room.mu.Unlock()
+
+		if initialCount == 2 {
+			if isBot {
+				data, _ := json.Marshal(map[string]interface{}{"room_code": roomCode, "opponent_name": oppName, "is_bot": true})
+				fmt.Fprintf(w, "event: bot_joined\ndata: %s\n\n", string(data))
+			} else {
+				data, _ := json.Marshal(map[string]string{"room_code": roomCode, "opponent_name": oppName})
+				fmt.Fprintf(w, "event: player_joined\ndata: %s\n\n", string(data))
+			}
+			flusher.Flush()
+		}
+		lastPlayerCount = initialCount
 	}
 
 	for {

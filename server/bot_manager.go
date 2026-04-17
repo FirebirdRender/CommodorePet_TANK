@@ -1,21 +1,20 @@
 package server
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"sync"
 	"time"
-
-	"github.com/coder/websocket"
 )
 
 type BotAssignment struct {
 	RoomCode string
 	BotID    string
 	BotClass string
+	Cmd      *exec.Cmd
 	Done     chan struct{}
 }
 
@@ -25,9 +24,10 @@ type BotManager struct {
 	tokens     *TokenStore
 	serverAddr string
 	enabled    bool
+	botBinary  string
 
 	mu     sync.Mutex
-	active map[string]*BotAssignment // roomCode -> assignment
+	active map[string]*BotAssignment
 }
 
 func NewBotManager(hub *Hub, handler *WSHandler, tokens *TokenStore, serverAddr string) *BotManager {
@@ -38,6 +38,7 @@ func NewBotManager(hub *Hub, handler *WSHandler, tokens *TokenStore, serverAddr 
 		tokens:     tokens,
 		serverAddr: serverAddr,
 		enabled:    enabled,
+		botBinary:  resolveBotBinary(),
 		active:     make(map[string]*BotAssignment),
 	}
 }
@@ -46,12 +47,32 @@ func (bm *BotManager) IsEnabled() bool {
 	return bm.enabled
 }
 
-// AssignBotToRoom reserves the bot seat and starts a goroutine that:
-// 1. Dials WS to the server
-// 2. Sends rejoin message for the given room code
-// 3. Enters a minimal keep-alive loop (tick consumption + empty input)
-// The actual AI logic comes from cmd/bot-go, but for M1 we need a "dumb bot"
-// that just joins and keeps the match alive.
+// resolveBotBinary picks the tank-bot executable in the following order:
+//  1. TANK_BOT_BIN env var (explicit override)
+//  2. Same directory as the running server binary
+//  3. ./bin/tank-bot relative to the working directory
+//
+// On Windows, ".exe" is appended automatically by exec.LookPath when needed.
+func resolveBotBinary() string {
+	if env := os.Getenv("TANK_BOT_BIN"); env != "" {
+		return env
+	}
+
+	exe, err := os.Executable()
+	if err == nil {
+		dir := filepath.Dir(exe)
+		candidate := filepath.Join(dir, "tank-bot")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+		if _, err := os.Stat(candidate + ".exe"); err == nil {
+			return candidate + ".exe"
+		}
+	}
+
+	return filepath.Join("bin", "tank-bot")
+}
+
 func (bm *BotManager) AssignBotToRoom(roomCode string, botClass string) error {
 	if !bm.enabled {
 		return fmt.Errorf("bot mode not available")
@@ -62,14 +83,12 @@ func (bm *BotManager) AssignBotToRoom(roomCode string, botClass string) error {
 		return fmt.Errorf("room not found: %s", roomCode)
 	}
 
-	// Reserve seat 2 for bot
 	if err := room.ReserveBotSeat(); err != nil {
 		return fmt.Errorf("reserve bot seat: %w", err)
 	}
 
-	// Add bot player to room
 	botID := fmt.Sprintf("bot-%s-%d", botClass, time.Now().UnixNano())
-	botName := "CPU" // PET-style name
+	botName := "CPU"
 	if botClass != "" {
 		botName = fmt.Sprintf("CPU-%s", botClass)
 	}
@@ -80,14 +99,35 @@ func (bm *BotManager) AssignBotToRoom(roomCode string, botClass string) error {
 		return fmt.Errorf("add bot player: %w", err)
 	}
 
-	// Generate token for bot
 	token := bm.tokens.GenerateToken(roomCode, playerID, botName)
+
+	if _, err := os.Stat(bm.botBinary); err != nil {
+		room.CancelBotReservation()
+		return fmt.Errorf("bot binary not found at %s (set TANK_BOT_BIN or run 'make bot'): %w", bm.botBinary, err)
+	}
+
+	wsURL := fmt.Sprintf("ws://%s/ws", bm.serverAddr)
+	cmd := exec.Command(bm.botBinary,
+		"-server", wsURL,
+		"-room", roomCode,
+		"-player-id", fmt.Sprintf("%d", playerID),
+		"-token", token,
+		"-name", botName,
+	)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Start(); err != nil {
+		room.CancelBotReservation()
+		return fmt.Errorf("start bot subprocess: %w", err)
+	}
 
 	done := make(chan struct{})
 	assignment := &BotAssignment{
 		RoomCode: roomCode,
 		BotID:    botID,
 		BotClass: botClass,
+		Cmd:      cmd,
 		Done:     done,
 	}
 
@@ -95,17 +135,16 @@ func (bm *BotManager) AssignBotToRoom(roomCode string, botClass string) error {
 	bm.active[roomCode] = assignment
 	bm.mu.Unlock()
 
-	log.Printf("[bot] assigned bot %s (%s) to room %s as player %d", botID, botName, roomCode, playerID)
+	log.Printf("[bot] spawned %s pid=%d for room %s as player %d", bm.botBinary, cmd.Process.Pid, roomCode, playerID)
 
-	// Start bot goroutine — dials WS as a regular client
 	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("[bot] panic in bot client for room %s: %v", roomCode, r)
-				bm.ReleaseBot(roomCode)
-			}
-		}()
-		bm.runBotClient(roomCode, playerID, token, botName, done)
+		err := cmd.Wait()
+		if err != nil {
+			log.Printf("[bot] subprocess for room %s exited: %v", roomCode, err)
+		} else {
+			log.Printf("[bot] subprocess for room %s exited cleanly", roomCode)
+		}
+		bm.ReleaseBot(roomCode)
 	}()
 
 	return nil
@@ -115,76 +154,36 @@ func (bm *BotManager) ReleaseBot(roomCode string) {
 	bm.mu.Lock()
 	assignment, ok := bm.active[roomCode]
 	if ok {
-		close(assignment.Done)
 		delete(bm.active, roomCode)
 	}
 	bm.mu.Unlock()
 
-	if ok {
-		log.Printf("[bot] released bot from room %s", roomCode)
+	if !ok {
+		return
 	}
+
+	select {
+	case <-assignment.Done:
+	default:
+		close(assignment.Done)
+	}
+
+	if assignment.Cmd != nil && assignment.Cmd.Process != nil {
+		if assignment.Cmd.ProcessState == nil || !assignment.Cmd.ProcessState.Exited() {
+			_ = assignment.Cmd.Process.Kill()
+		}
+	}
+
+	log.Printf("[bot] released bot from room %s", roomCode)
 }
 
 func (bm *BotManager) HealthSnapshot() map[string]string {
 	bm.mu.Lock()
 	defer bm.mu.Unlock()
 
-	result := map[string]string{
+	return map[string]string{
 		"enabled":     fmt.Sprintf("%v", bm.enabled),
 		"active_bots": fmt.Sprintf("%d", len(bm.active)),
+		"bot_binary":  bm.botBinary,
 	}
-	return result
-}
-
-// runBotClient connects to the server as a regular WS client and sends a rejoin
-// message. The server's ClientConn pumps handle all further reads/writes.
-// This proves the WS-based bot architecture works end-to-end.
-func (bm *BotManager) runBotClient(roomCode string, playerID int, token, botName string, done chan struct{}) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("[bot] recovered panic in runBotClient for room %s: %v", roomCode, r)
-		}
-	}()
-	defer bm.ReleaseBot(roomCode)
-
-	wsURL := fmt.Sprintf("ws://%s/ws", bm.serverAddr)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	conn, _, err := websocket.Dial(ctx, wsURL, nil)
-	if err != nil {
-		log.Printf("[bot] WS dial failed for room %s: %v", roomCode, err)
-		return
-	}
-	defer conn.Close(websocket.StatusNormalClosure, "bot done")
-
-	// Send rejoin message to join the room
-	rejoinPayload, _ := json.Marshal(map[string]any{
-		"room_code":   roomCode,
-		"player_id":   playerID,
-		"token":       token,
-		"player_name": botName,
-	})
-	rejoinEnv, _ := json.Marshal(map[string]any{
-		"type":    "rejoin",
-		"payload": json.RawMessage(rejoinPayload),
-	})
-
-	// Write the rejoin message
-	err = conn.Write(ctx, websocket.MessageText, rejoinEnv)
-	if err != nil {
-		log.Printf("[bot] rejoin send failed for room %s: %v", roomCode, err)
-		return
-	}
-
-	log.Printf("[bot] connected to room %s as player %d", roomCode, playerID)
-	log.Printf("[bot] waiting for server to process rejoin and start match...")
-
-	// Wait for the server to process and start the match.
-	// The server's ClientConn pumps handle all further communication.
-	// We just need to keep this goroutine alive so the connection doesn't close.
-	<-done
-
-	log.Printf("[bot] bot exiting for room %s", roomCode)
 }

@@ -28,8 +28,10 @@ func main() {
 	roomAPI := server.NewRoomAPI(hub, handler.Registry(), tokens)
 
 	serverAddr := *addr
-	if !strings.Contains(serverAddr, ":") {
-		serverAddr = "localhost:" + strings.TrimPrefix(serverAddr, ":")
+	if strings.HasPrefix(serverAddr, ":") {
+		serverAddr = "localhost" + serverAddr
+	} else if !strings.Contains(serverAddr, ":") {
+		serverAddr = "localhost:" + serverAddr
 	}
 	botManager := server.NewBotManager(hub, handler, tokens, serverAddr)
 	roomAPI.SetBotManager(botManager)

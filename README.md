@@ -4,7 +4,7 @@ Faithful recreation of the Commodore PET TANK! game with networked multiplayer v
 
 ## Version
 
-Current: **0.9.1** (Wave 9 - Bot API & VS AI Mode)
+Current: **0.9.2** (Wave 9 - Bot API & VS AI Mode)
 
 ## Quick Start
 
@@ -83,6 +83,12 @@ Set `TANK_ENABLE_BOTS=1` environment variable to enable bot opponents. When enab
 - **VS AI**: Click "VS AI" in the lobby to play against an immediate CPU opponent
 - **Auto-fill**: Create a room with `auto_fill_bot=true` and a bot joins after a configurable timeout if no human does
 - Bots connect via the same WebSocket protocol as humans — third-party bots can use the `bot-sdk-go` package
+
+**Runtime requirement**: The server spawns `bin/tank-bot` (or `bin\tank-bot.exe` on Windows) as a subprocess for each bot opponent. Run `make bot` (or `build.bat → bot`) to build it. The server resolves the binary in this order:
+
+1. `TANK_BOT_BIN` environment variable (absolute path)
+2. Same directory as the server executable
+3. `./bin/tank-bot` (current working directory)
 
 See `docs/BOT_API.md` for the full bot developer guide.
 

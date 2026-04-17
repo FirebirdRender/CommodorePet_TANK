@@ -1,5 +1,23 @@
 ## Changelog
 
+### 0.9.2 - 2026-04-17 — VS AI hotfixes (subprocess bots + SSE race)
+
+**Bug Fixes:**
+- **VS AI never started match (SSE race)**: In VS AI mode, both seats fill synchronously inside `POST /api/room` (human via `AddPlayer`, bot via `AssignBotToRoom` → `AddBotPlayer`). The browser's SSE stream opened *after* the room was already full, so the edge-triggered `currCount > lastPlayerCount` check in `handleRoomEvents` never fired and the client sat on "WAITING FOR CPU OPPONENT...". Fix: emit `bot_joined` (or `player_joined`) immediately at SSE stream open whenever the room is already full at connect time. (`server/room_api.go`)
+- **Bot connected but never moved**: The previous in-process `runBotClient` only sent `rejoin` and then blocked on `<-done` with no AI loop, so the bot was a sitting duck. Fix: replaced with subprocess model (see below).
+- **`-addr :8080` form rejected by bot URL builder**: `cmd/server/main.go` only prepended `localhost` when the addr lacked a `:`, but `:8080` contains `:` already. Now also prepends when the addr starts with `:`.
+
+**Architectural Change — Bot Subprocess Model:**
+- `server/bot_manager.go` rewritten: `AssignBotToRoom` now spawns `bin/tank-bot` as an OS subprocess via `exec.Command` instead of dialing the WebSocket in-process. The bot binary already contains the full Stage A AI from `cmd/bot-go` + `bot-sdk-go`, so the in-server bot now actually plays.
+- 3-tier bot binary resolution: (1) `TANK_BOT_BIN` env override, (2) same directory as the server executable (`os.Executable()`), (3) `./bin/tank-bot` fallback. Windows `.exe` suffix handled.
+- `ReleaseBot` kills the subprocess if it's still alive; a background goroutine waits on `cmd.Wait()` to release the seat when the bot exits on its own.
+- Bot stdout/stderr piped to server stdout/stderr for visibility.
+- `HealthSnapshot()` now reports the resolved `bot_binary` path.
+- Removes the `coder/websocket` import from `server/bot_manager.go` (no longer dials WS).
+
+**Runtime Requirement:**
+- When `TANK_ENABLE_BOTS=1`, the server now requires `bin/tank-bot` (or `bin\tank-bot.exe` on Windows) to exist on disk. `make bot` / `build.bat → bot` builds it. Override the path with `TANK_BOT_BIN=/path/to/tank-bot`.
+
 ### 0.9.1 - 2026-04-17 — Windows build.bat + bot build target
 
 - **`build.bat`**: Windows batch script mirroring Makefile targets — `wasm`, `server`, `bot`, `build-all`, `dev`, `test`, `test-headless`, `test-e2e`, `test-all`, `clean`. Interactive menu for convenience.
