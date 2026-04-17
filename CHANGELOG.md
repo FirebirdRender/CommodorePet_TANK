@@ -1,5 +1,19 @@
 ## Changelog
 
+### 0.9.7.2 - 2026-04-17 — Server version banner
+
+**Feature.** The server now logs its version on the startup line so operators can identify the running build at a glance, both in the console and in log files.
+
+**Before:** `TANK! server listening on :8080`
+**After:**  `TANK! server (v0.9.7.2) listening on :8080`
+
+**Implementation:**
+
+- New `server/version.go` exporting `AppVersion = "0.9.7.2"`. This is the human-facing app version (separate from `ProtocolVersion`, which is the wire-format version).
+- `cmd/server/main.go:92` now formats `"TANK! server (v%s) listening on %s"` with `server.AppVersion`.
+
+**Bump policy:** `AppVersion` follows the existing changelog cadence — bumped on every release. `ProtocolVersion` stays at `1.0.0` and only changes per the `docs/BOT_API.md` §10 policy.
+
 ### 0.9.7.1 - 2026-04-17 — Mine arming delay (2-second fuse)
 
 **Bugfix.** Laying a mine immediately exploded under the layer because `ResolveTankMineCollision` only gated on `mine.Active`, and `NewMine` set `Active=true` at placement. There was no arming delay at all — the visible-duration timer (`MineVisibleDuration`) was a separate concern that only controlled board-cell rendering, not detonation.

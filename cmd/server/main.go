@@ -89,7 +89,7 @@ func main() {
 		}
 	}()
 
-	log.Printf("TANK! server listening on %s", *addr)
+	log.Printf("TANK! server (v%s) listening on %s", server.AppVersion, *addr)
 	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 		log.Fatalf("server error: %v", err)
 	}
