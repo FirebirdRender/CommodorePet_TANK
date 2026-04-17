@@ -233,8 +233,8 @@ func (bm *BotManager) runBotClient(roomCode string, playerID int, token, botName
 			currentTick += 30 // ~500ms at 60Hz
 
 		default:
-			// Try to read a message (non-blocking-ish)
-			readCtx, readCancel := context.WithTimeout(ctx, 10*time.Millisecond)
+			// Try to read a message every 100ms
+			readCtx, readCancel := context.WithTimeout(ctx, 100*time.Millisecond)
 			_, msg, err := conn.Read(readCtx)
 			readCancel()
 			if err == nil {
