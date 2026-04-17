@@ -47,52 +47,36 @@ func main() {
 	// Connect using bot-sdk-go client
 	client := botsdk.NewClient(*serverURL, rcode, pid, tok, *playerName)
 
-	// Initialize bot state
 	var botState *BotState
-	var lastFiredKey string
 
 	client.OnGameStart = func(msg *botsdk.GameStartPayload) {
-		log.Printf("Game start - difficulty: %d, size: %dx%d", msg.Difficulty, len(msg.Grid[0]), len(msg.Grid))
+		log.Printf("Game start - difficulty: %d, size: %dx%d, your_player_id=%d", msg.Difficulty, len(msg.Grid[0]), len(msg.Grid), msg.YourPlayerID)
 		botState = NewBotState(msg.YourPlayerID, msg.Difficulty, len(msg.Grid[0]), len(msg.Grid))
-		lastFiredKey = ""
+		botState.LoadKeyframe(msg.Grid)
+	}
+
+	sendActions := func(tick uint64, actions []InputAction) {
+		for _, a := range actions {
+			if err := client.SendInput(tick, a.Key, a.Action); err != nil {
+				log.Printf("Send input error (%s/%s): %v", a.Key, a.Action, err)
+			}
+		}
 	}
 
 	client.OnTick = func(msg *botsdk.TickPayload) {
 		if botState == nil {
 			return
 		}
-		key, action := botState.Decide(msg, nil)
-		if key != "" {
-			if lastFiredKey != "" && lastFiredKey != key {
-				// Send release for previous key
-				if err := client.SendInput(msg.Tick, lastFiredKey, "up"); err != nil {
-					log.Printf("Send input error (release): %v", err)
-				}
-			}
-			// Send press for new key
-			if err := client.SendInput(msg.Tick, key, action); err != nil {
-				log.Printf("Send input error (press): %v", err)
-			}
-			lastFiredKey = key
-		}
+		botState.LoadKeyframe(msg.Grid)
+		sendActions(msg.Tick, botState.Decide(msg.Tanks))
 	}
 
 	client.OnTickDelta = func(msg *botsdk.TickDeltaPayload) {
 		if botState == nil {
 			return
 		}
-		key, action := botState.Decide(nil, msg)
-		if key != "" {
-			if lastFiredKey != "" && lastFiredKey != key {
-				if err := client.SendInput(msg.Tick, lastFiredKey, "up"); err != nil {
-					log.Printf("Send input error (release delta): %v", err)
-				}
-			}
-			if err := client.SendInput(msg.Tick, key, action); err != nil {
-				log.Printf("Send input error (press delta): %v", err)
-			}
-			lastFiredKey = key
-		}
+		botState.ApplyDelta(msg.ChangedCells)
+		sendActions(msg.Tick, botState.Decide(msg.Tanks))
 	}
 
 	client.OnRoundOver = func(msg *botsdk.RoundOverPayload) {

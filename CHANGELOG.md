@@ -1,5 +1,16 @@
 ## Changelog
 
+### 0.9.3 - 2026-04-17 — Bot AI: single-key-per-tick + cell-enum + alignment fixes
+
+**Bug Fixes — bot connected, fired harmlessly, never moved, lost 0-3 every match.** Three independent input-contract bugs in `cmd/bot-go/ai.go`:
+
+- **Cell enum was 1-indexed but `isWall` treated 0 as empty.** `engine/constants.go` declares `CellEmpty CellType = iota + 1`, so empty floor is `1`, not `0`. The bot's `isWall` used `grid[ny][nx] > 0` which marked **every** cell (including empty floor) as a wall, so `moveTowardEnemy` always concluded it was boxed in and fell through to a no-op. Fix: `const cellEmpty = 1` and `bs.grid[ny][nx] != cellEmpty`.
+- **Server `InputTracker.ConsumeAction` is one-shot destructive.** It returns the pending action then clears it to `nil` (`server/input.go:44-48`); the `held` map written by `KeyDown`/`KeyUp` is never read. The match loop calls `ConsumeAction` once per 60 Hz tick → one `ApplyInput` → one cell move (gated by `MoveDelay ≈ 0.244s` at difficulty 5). The previous bot pressed a movement key once and waited for an "up" event that the server didn't need — so movement stopped after one cell. Fix: re-emit `{key: dir, action: "down"}` **every** tick the bot wants to advance; never send movement `up` events.
+- **Single-key-per-tick rule (original PET semantics).** The original Commodore PET TANK! had keyboard repeat off and accepted only one key at a time. The bot was emitting `[{down down} {fire down} {fire up}]` simultaneously, violating this. Fix: `Decide` now returns exactly one logical input per tick — fire (if strictly same-row or same-column with shots remaining) > drop mine (if dist<3, p=0.05) > move toward enemy (re-pressed every tick).
+- **`canFireAligned` was too loose.** Original `abs(rowDiff) <= 1 || abs(colDiff) <= 1` triggered fire on diagonals, wasting shots. Tightened to strict `my.Y == enemy.Y || my.X == enemy.X`.
+
+**Code cleanup:** Removed `currentMoveKey` field and `releaseMoveIfAny` method (no longer needed under the re-emit-every-tick model). Stripped verbose first-5-tick / 60Hz-sampled diagnostic logging from `cmd/bot-go/main.go` now that the protocol is correct.
+
 ### 0.9.2 - 2026-04-17 — VS AI hotfixes (subprocess bots + SSE race)
 
 **Bug Fixes:**
