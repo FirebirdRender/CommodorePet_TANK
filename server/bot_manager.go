@@ -136,9 +136,8 @@ func (bm *BotManager) HealthSnapshot() map[string]string {
 	return result
 }
 
-// runBotClient connects to the server as a regular WS client,
-// joins the room, and runs a minimal "dumb bot" loop that just
-// sends occasional fire inputs to keep the game alive.
+// runBotClient connects to the server as a regular WS client and sends a rejoin
+// message. The server's ClientConn pumps handle all further reads/writes.
 // This proves the WS-based bot architecture works end-to-end.
 func (bm *BotManager) runBotClient(roomCode string, playerID int, token, botName string, done chan struct{}) {
 	defer func() {
@@ -172,104 +171,20 @@ func (bm *BotManager) runBotClient(roomCode string, playerID int, token, botName
 		"payload": json.RawMessage(rejoinPayload),
 	})
 
-	writeCtx, writeCancel := context.WithTimeout(ctx, 5*time.Second)
-	err = conn.Write(writeCtx, websocket.MessageText, rejoinEnv)
-	writeCancel()
+	// Write the rejoin message
+	err = conn.Write(ctx, websocket.MessageText, rejoinEnv)
 	if err != nil {
 		log.Printf("[bot] rejoin send failed for room %s: %v", roomCode, err)
 		return
 	}
 
 	log.Printf("[bot] connected to room %s as player %d", roomCode, playerID)
+	log.Printf("[bot] waiting for server to process rejoin and start match...")
 
-	// Dumb bot loop: read messages, occasionally send random inputs
-	// Real AI will come from cmd/bot-go; this proves the lifecycle works
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
+	// Wait for the server to process and start the match.
+	// The server's ClientConn pumps handle all further communication.
+	// We just need to keep this goroutine alive so the connection doesn't close.
+	<-done
 
-	currentTick := uint64(0)
-
-	for {
-		select {
-		case <-done:
-			return
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			// Send a random direction input every 500ms
-			// This is the Stage A "fallback legal random move" from the AI design
-			keys := []string{"up", "down", "left", "right", "fire"}
-			key := keys[time.Now().UnixNano()%5]
-
-			inputPayload, _ := json.Marshal(map[string]any{
-				"tick":   currentTick,
-				"key":    key,
-				"action": "down",
-			})
-			inputEnv, _ := json.Marshal(map[string]any{
-				"type":    "input",
-				"payload": json.RawMessage(inputPayload),
-			})
-
-			writeCtx, writeCancel := context.WithTimeout(ctx, 2*time.Second)
-			conn.Write(writeCtx, websocket.MessageText, inputEnv)
-			writeCancel()
-
-			// Send key up after a brief moment
-			upPayload, _ := json.Marshal(map[string]any{
-				"tick":   currentTick,
-				"key":    key,
-				"action": "up",
-			})
-			upEnv, _ := json.Marshal(map[string]any{
-				"type":    "input",
-				"payload": json.RawMessage(upPayload),
-			})
-
-			upCtx, upCancel := context.WithTimeout(ctx, 2*time.Second)
-			conn.Write(upCtx, websocket.MessageText, upEnv)
-			upCancel()
-
-			currentTick += 30 // ~500ms at 60Hz
-
-		default:
-			// Try to read a message every 100ms
-			readCtx, readCancel := context.WithTimeout(ctx, 100*time.Millisecond)
-			_, msg, err := conn.Read(readCtx)
-			readCancel()
-			if err == nil {
-				// Parse envelope to track tick number
-				var env struct {
-					Type    string          `json:"type"`
-					Payload json.RawMessage `json:"payload"`
-				}
-				if json.Unmarshal(msg, &env) == nil {
-					if env.Type == "tick" || env.Type == "tick_delta" {
-						var tickData struct {
-							Tick uint64 `json:"tick"`
-						}
-						if json.Unmarshal(env.Payload, &tickData) == nil {
-							currentTick = tickData.Tick
-						}
-					} else if env.Type == "game_over" {
-						log.Printf("[bot] game over in room %s", roomCode)
-						// Send play_again
-						playAgainEnv, _ := json.Marshal(map[string]any{
-							"type":    "play_again",
-							"payload": map[string]any{},
-						})
-						paCtx, paCancel := context.WithTimeout(ctx, 2*time.Second)
-						conn.Write(paCtx, websocket.MessageText, playAgainEnv)
-						paCancel()
-					} else if env.Type == "opponent_left" {
-						log.Printf("[bot] opponent left room %s, exiting", roomCode)
-						return
-					} else if env.Type == "error" {
-						log.Printf("[bot] error in room %s: %s", roomCode, string(env.Payload))
-						return
-					}
-				}
-			}
-		}
-	}
+	log.Printf("[bot] bot exiting for room %s", roomCode)
 }
