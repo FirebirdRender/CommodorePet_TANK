@@ -455,10 +455,28 @@ func (bs *BotState) findTanks(tanks [2]botsdk.TankInfo) (my, enemy *botsdk.TankI
 
 // canFireWithLOS returns true iff shots remain, we're strictly same-row or
 // same-column with the enemy, and every cell strictly between us is empty
-// floor. Walls, barrels, wreckage, and mines all block the shot.
+// floor — EXCEPT for own barrel and enemy barrel cells, which are not
+// projectile-blocking. Engine spawns the projectile AT the bot's barrel cell
+// (engine/game.go:160 ShotSpawnPosition) and a projectile striking the enemy
+// barrel kills the enemy tank, so both barrel cells count as fire-through for
+// LOS purposes. Without this exception the bot's own barrel (always one cell
+// in its facing direction, i.e. always in the LOS path toward an aligned
+// enemy) blocks every aligned-fire opportunity — root cause of the "marches
+// across the screen, never fires" bug observed in the 0.9.5 playtest.
 func (bs *BotState) canFireWithLOS(my, enemy *botsdk.TankInfo) bool {
 	if my.ShotsLeft <= 0 {
 		return false
+	}
+	myBarrelX, myBarrelY := barrelPos(my)
+	exBarrelX, exBarrelY := barrelPos(enemy)
+	openForLOS := func(x, y int) bool {
+		if x == myBarrelX && y == myBarrelY {
+			return true
+		}
+		if x == exBarrelX && y == exBarrelY {
+			return true
+		}
+		return bs.isOpen(x, y)
 	}
 	if my.Y == enemy.Y {
 		y := my.Y
@@ -467,7 +485,7 @@ func (bs *BotState) canFireWithLOS(my, enemy *botsdk.TankInfo) bool {
 			x1, x2 = x2, x1
 		}
 		for x := x1 + 1; x < x2; x++ {
-			if !bs.isOpen(x, y) {
+			if !openForLOS(x, y) {
 				return false
 			}
 		}
@@ -480,7 +498,7 @@ func (bs *BotState) canFireWithLOS(my, enemy *botsdk.TankInfo) bool {
 			y1, y2 = y2, y1
 		}
 		for y := y1 + 1; y < y2; y++ {
-			if !bs.isOpen(x, y) {
+			if !openForLOS(x, y) {
 				return false
 			}
 		}
@@ -618,6 +636,25 @@ func (bs *BotState) PendingDesc() string {
 		return "idle"
 	}
 	return fmt.Sprintf("%s/%s@%d", p.kind, p.key, p.emittedTick)
+}
+
+// barrelPos returns the cell occupied by a tank's barrel, mirroring engine
+// DirectionVectors (engine/game.go). Returns sentinel (-1,-1) for an unknown
+// direction; sentinel never matches a real grid cell (cells start at 0,0) so
+// it safely no-ops in canFireWithLOS comparisons.
+func barrelPos(t *botsdk.TankInfo) (int, int) {
+	switch t.Dir {
+	case dirUp:
+		return t.X, t.Y - 1
+	case dirDown:
+		return t.X, t.Y + 1
+	case dirLeft:
+		return t.X - 1, t.Y
+	case dirRight:
+		return t.X + 1, t.Y
+	default:
+		return -1, -1
+	}
 }
 
 func abs(x int) int {

@@ -4,7 +4,7 @@ Faithful recreation of the Commodore PET TANK! game with networked multiplayer v
 
 ## Version
 
-Current: **0.9.5** (Wave 9 - Bot AI: fire-interrupt + thinking delay + clean game-end)
+Current: **0.9.6** (Wave 9 - Bot AI: own-barrel LOS exception — fire-when-aligned fix)
 
 ## Quick Start
 

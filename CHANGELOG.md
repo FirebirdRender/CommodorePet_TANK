@@ -1,5 +1,19 @@
 ## Changelog
 
+### 0.9.6 - 2026-04-17 — Bot AI: own-barrel LOS exception (fire-when-aligned fix)
+
+**Playtest feedback on 0.9.5: thinking delay at lvl 1 "feels about right", but the bot still marches across the entire screen along the same row as the player without firing — only firing once it ends up directly above/below.** Match log showed bot at Y=9, foe at (10,9), `pend=idle`, `sh=6` unchanged across ~1200 ticks of perfect same-row alignment. The 0.9.5 fire-interrupt only addressed the "pending move blocks fire" failure mode; this is a deeper LOS bug that prevents fire from ever being eligible in the first place.
+
+**Root cause: own barrel blocks own LOS.** `canFireWithLOS` walked cells strictly between bot and enemy via `bs.isOpen(x, y)`, which only returns true for `cellEmpty`. The bot's barrel is **always** one cell in its facing direction (engine `tank.BarrelPos() = tank.X + DirectionVectors[Dir]`). When the bot faces left toward an aligned enemy, its own barrel sits at `(myX-1, myY)` — directly in the LOS path on the very first loop iteration → `isOpen` returns false → LOS check fails forever, regardless of how clean the actual line of fire is. Same hazard at the enemy end: enemy's barrel facing the bot occupies `(enemyX+1, enemyY)` which is also in the strict-between range.
+
+**Engine confirms barrel cells are NOT projectile-blocking.** `engine/game.go:160 ShotSpawnPosition` spawns the projectile **AT** the barrel cell `(tank.X+v[0], tank.Y+v[1])` — the projectile originates AT the bot's own barrel, so own barrel is never in the projectile's path. And `engine/game.go:275-283` treats a projectile striking the enemy barrel as a kill (`case CellBarrel1, CellBarrel2: BarrelHit → wreckage + tank kill`). Both barrel cells must therefore count as fire-through for LOS purposes.
+
+**Fix:** `cmd/bot-go/ai.go` adds a `barrelPos(t *botsdk.TankInfo) (int, int)` helper mirroring engine `DirectionVectors`, plus an `openForLOS(x, y)` closure inside `canFireWithLOS` that returns true if the cell matches own barrel or enemy barrel, falling through to `bs.isOpen` otherwise. Both the row-aligned and column-aligned LOS loops now use `openForLOS` instead of `bs.isOpen`. Sentinel `(-1,-1)` for unknown direction safely never matches a real grid cell.
+
+**Files changed:** `cmd/bot-go/ai.go`, `README.md`, `CHANGELOG.md`.
+
+**Test coverage:** Existing `TestBot_RuntimeBotInputAffectsState` continues to pass (clean build, no regression in movement). Fire-when-aligned behavior is verified by manual playtest — the writePump regression guard does not exercise alignment-range LOS.
+
 ### 0.9.5 - 2026-04-17 — Bot AI: fire-interrupt + thinking delay + clean game-end
 
 **Playtest feedback on 0.9.4: bot moves and tracks the player, but (1) never fires even on clean shots, (2) is too fast at low difficulty, (3) errors out at game end with `unknown message type: play_again_ack`.** Three independent fixes:
