@@ -74,8 +74,16 @@ func resolveBotBinary() string {
 }
 
 func (bm *BotManager) AssignBotToRoom(roomCode string, botClass string) error {
+	return bm.AssignBotToRoomAt(roomCode, 1, botClass)
+}
+
+func (bm *BotManager) AssignBotToRoomAt(roomCode string, slot int, botClass string) error {
 	if !bm.enabled {
 		return fmt.Errorf("bot mode not available")
+	}
+
+	if slot < 0 || slot > 1 {
+		return fmt.Errorf("invalid slot %d", slot)
 	}
 
 	room := bm.hub.GetRoom(roomCode)
@@ -83,26 +91,26 @@ func (bm *BotManager) AssignBotToRoom(roomCode string, botClass string) error {
 		return fmt.Errorf("room not found: %s", roomCode)
 	}
 
-	if err := room.ReserveBotSeat(); err != nil {
+	if err := room.ReserveBotSeatAt(slot); err != nil {
 		return fmt.Errorf("reserve bot seat: %w", err)
 	}
 
-	botID := fmt.Sprintf("bot-%s-%d", botClass, time.Now().UnixNano())
-	botName := "CPU"
+	botID := fmt.Sprintf("bot-%s-%d-%d", botClass, slot, time.Now().UnixNano())
+	botName := fmt.Sprintf("CPU%d", slot+1)
 	if botClass != "" {
-		botName = fmt.Sprintf("CPU-%s", botClass)
+		botName = fmt.Sprintf("CPU%d-%s", slot+1, botClass)
 	}
 
-	playerID, err := room.AddBotPlayer(botName, botID, botClass)
+	playerID, err := room.AddBotPlayerAt(slot, botName, botID, botClass)
 	if err != nil {
-		room.CancelBotReservation()
+		room.CancelBotReservationAt(slot)
 		return fmt.Errorf("add bot player: %w", err)
 	}
 
 	token := bm.tokens.GenerateToken(roomCode, playerID, botName)
 
 	if _, err := os.Stat(bm.botBinary); err != nil {
-		room.CancelBotReservation()
+		room.CancelBotReservationAt(slot)
 		return fmt.Errorf("bot binary not found at %s (set TANK_BOT_BIN or run 'make bot'): %w", bm.botBinary, err)
 	}
 
@@ -118,7 +126,7 @@ func (bm *BotManager) AssignBotToRoom(roomCode string, botClass string) error {
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
-		room.CancelBotReservation()
+		room.CancelBotReservationAt(slot)
 		return fmt.Errorf("start bot subprocess: %w", err)
 	}
 
@@ -131,30 +139,41 @@ func (bm *BotManager) AssignBotToRoom(roomCode string, botClass string) error {
 		Done:     done,
 	}
 
+	key := botAssignmentKey(roomCode, slot)
 	bm.mu.Lock()
-	bm.active[roomCode] = assignment
+	bm.active[key] = assignment
 	bm.mu.Unlock()
 
-	log.Printf("[bot] spawned %s pid=%d for room %s as player %d", bm.botBinary, cmd.Process.Pid, roomCode, playerID)
+	log.Printf("[bot] spawned %s pid=%d for room %s slot %d as player %d", bm.botBinary, cmd.Process.Pid, roomCode, slot, playerID)
 
 	go func() {
 		err := cmd.Wait()
 		if err != nil {
-			log.Printf("[bot] subprocess for room %s exited: %v", roomCode, err)
+			log.Printf("[bot] subprocess for room %s slot %d exited: %v", roomCode, slot, err)
 		} else {
-			log.Printf("[bot] subprocess for room %s exited cleanly", roomCode)
+			log.Printf("[bot] subprocess for room %s slot %d exited cleanly", roomCode, slot)
 		}
-		bm.ReleaseBot(roomCode)
+		bm.releaseBotAt(roomCode, slot)
 	}()
 
 	return nil
 }
 
+func botAssignmentKey(roomCode string, slot int) string {
+	return fmt.Sprintf("%s#%d", roomCode, slot)
+}
+
 func (bm *BotManager) ReleaseBot(roomCode string) {
+	bm.releaseBotAt(roomCode, 1)
+	bm.releaseBotAt(roomCode, 0)
+}
+
+func (bm *BotManager) releaseBotAt(roomCode string, slot int) {
+	key := botAssignmentKey(roomCode, slot)
 	bm.mu.Lock()
-	assignment, ok := bm.active[roomCode]
+	assignment, ok := bm.active[key]
 	if ok {
-		delete(bm.active, roomCode)
+		delete(bm.active, key)
 	}
 	bm.mu.Unlock()
 
@@ -174,7 +193,7 @@ func (bm *BotManager) ReleaseBot(roomCode string) {
 		}
 	}
 
-	log.Printf("[bot] released bot from room %s", roomCode)
+	log.Printf("[bot] released bot from room %s slot %d", roomCode, slot)
 }
 
 func (bm *BotManager) HealthSnapshot() map[string]string {

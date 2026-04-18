@@ -266,7 +266,7 @@ func TestReserveBotSeat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected ReserveBotSeat to succeed, got %v", err)
 	}
-	if !r.BotSeatReserved {
+	if !r.BotSeatReserved[1] {
 		t.Fatal("expected BotSeatReserved to be true")
 	}
 
@@ -285,7 +285,11 @@ func TestAddBotPlayer(t *testing.T) {
 		t.Fatal("expected AddBotPlayer to fail without reservation")
 	}
 
-	r.BotSeatReserved = true
+	if _, err := r.AddPlayer("Alice"); err != nil {
+		t.Fatalf("expected AddPlayer P1 to succeed, got %v", err)
+	}
+
+	r.BotSeatReserved[1] = true
 	id, err := r.AddBotPlayer("Bot1", "bot-001", "mvp")
 	if err != nil {
 		t.Fatalf("expected AddBotPlayer to succeed after reservation, got %v", err)
@@ -314,7 +318,7 @@ func TestAddBotPlayer(t *testing.T) {
 	if r.GetState() != RoomReady {
 		t.Fatalf("expected RoomReady after bot joins, got %v", r.GetState())
 	}
-	if r.BotSeatReserved {
+	if r.BotSeatReserved[1] {
 		t.Fatal("expected BotSeatReserved to be cleared after AddBotPlayer")
 	}
 }
@@ -322,7 +326,7 @@ func TestAddBotPlayer(t *testing.T) {
 func TestAddPlayerBotSeatReserved(t *testing.T) {
 	r := NewRoom("ROOM", 3)
 
-	r.BotSeatReserved = true
+	r.BotSeatReserved[1] = true
 
 	id1, err := r.AddPlayer("Alice")
 	if err != nil {
@@ -342,12 +346,12 @@ func TestCancelBotReservation(t *testing.T) {
 	r := NewRoom("ROOM", 3)
 
 	r.ReserveBotSeat()
-	if !r.BotSeatReserved {
+	if !r.BotSeatReserved[1] {
 		t.Fatal("expected BotSeatReserved to be true after ReserveBotSeat")
 	}
 
 	r.CancelBotReservation()
-	if r.BotSeatReserved {
+	if r.BotSeatReserved[1] {
 		t.Fatal("expected BotSeatReserved to be false after CancelBotReservation")
 	}
 
@@ -384,12 +388,12 @@ func TestNewRoomWithBotPolicy(t *testing.T) {
 
 func TestRemoveBotPlayerClearsReservation(t *testing.T) {
 	r := NewRoomWithBotPolicy("ROOM", 3, true, false, 0)
-	r.BotSeatReserved = true
+	r.BotSeatReserved[1] = true
 
 	r.Players[1] = &Player{ID: 2, Name: "Bot1", Connected: true, IsBot: true, BotID: "bot-001"}
 	r.RemovePlayer(2)
 
-	if r.BotSeatReserved {
+	if r.BotSeatReserved[1] {
 		t.Fatal("expected BotSeatReserved to be cleared when bot player removed")
 	}
 }

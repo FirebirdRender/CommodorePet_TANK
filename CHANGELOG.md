@@ -1,5 +1,28 @@
 ## Changelog
 
+### 0.9.8 - 2026-04-17 — Phase 6 G-2: Bot API extended for bot-vs-bot (per-slot seat reservation)
+
+**Closes Phase 6 gap G-2.** The Bot API previously assumed a fixed P2 seat for the bot, which precluded bot-vs-bot rooms (both seats need to be reservable). This release extends `Room` and `BotManager` to support per-slot seat reservation while preserving the existing single-bot vs-AI flow as the default.
+
+**Approach:** Option 1 (Oracle-confirmed) — extend `Room`/`BotManager` to support seat 0 rather than introduce a parallel API. Backward-compatible: existing callers using `ReserveBotSeat()` / `AddBotPlayer()` continue to work and target slot 1 (P2 seat).
+
+**Implementation:**
+
+- `server/room.go`:
+  - `BotSeatReserved` is now `[2]bool` (per-slot), not a single bool. Index 0 = P1 seat, index 1 = P2 seat.
+  - New `ReserveBotSeatAt(slot int) error` — slot-aware reservation. `ReserveBotSeat()` is preserved as a thin wrapper calling `ReserveBotSeatAt(1)`.
+  - New `AddBotPlayerAt(slot int, name, botID, botClass string) (int, error)` — slot-aware bot insertion. `AddBotPlayer(...)` is preserved as a wrapper calling `AddBotPlayerAt(1, ...)`. Returns `slot+1` as the player ID.
+  - New `CancelBotReservationAt(slot int)` — slot-aware cancellation. `CancelBotReservation()` clears both slots.
+  - `AddPlayer` now refuses slot 0 if `BotSeatReserved[0]` is set (previously only enforced for slot 1).
+  - `RemovePlayer` clears `BotSeatReserved[playerID-1]` (previously only cleared the single global flag).
+  - State transition to `RoomReady` now requires both seats filled (was: any seat filled with `BotSeatReserved` true).
+- `server/bot_manager.go`: extended to drive bot processes for either slot — argv carries the assigned `playerID`, lifecycle hooks update the correct slot index.
+- `server/room_test.go`: updated existing tests to use the new `[2]bool` semantics + added coverage for slot-0 reservation, dual-bot reservation, and slot-aware cancellation.
+
+**Test results:** Full `go test -race ./... -count=1` passes (server suite 107s with race detector). `TestBot_VsBot_FullMatch` passes 5/5 deterministically.
+
+**Bumped:** `AppVersion = "0.9.8"`. `ProtocolVersion` unchanged at `1.0.0` (G-2 changes are server-internal; wire format untouched).
+
 ### 0.9.7.3 - 2026-04-17 — Bot AI: livelock + 8-direction + diagonal fire + spawn-block guard
 
 **Bugfix.** `TestBot_VsBot_FullMatch` was flaking due to four independent defects in the bot AI that compounded under specific spawn geometries. After this release the test passes 5/5 deterministically.

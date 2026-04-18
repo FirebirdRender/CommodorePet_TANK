@@ -37,8 +37,12 @@ type Room struct {
 	AllowBot         bool
 	AutoFillBot      bool
 	AutoFillAfterSec int
-	BotSeatReserved  bool
-	autoFillTimer    *time.Timer
+	// BotSeatReserved is per-slot (index 0 = P1 seat, index 1 = P2 seat).
+	// Bot-vs-bot rooms reserve both slots; standard vs-AI rooms reserve only [1].
+	// Justification: priority 3 — exported field with non-obvious indexing semantics
+	// that callers reading the struct will get wrong without explanation.
+	BotSeatReserved [2]bool
+	autoFillTimer   *time.Timer
 
 	mu sync.Mutex
 }
@@ -69,12 +73,15 @@ func (r *Room) AddPlayer(name string) (playerID int, err error) {
 	defer r.mu.Unlock()
 
 	if r.Players[0] == nil {
+		if r.BotSeatReserved[0] {
+			return 0, fmt.Errorf("seat reserved for bot")
+		}
 		r.Players[0] = &Player{ID: 1, Name: name, Connected: true}
 		return 1, nil
 	}
 
 	if r.Players[1] == nil {
-		if r.BotSeatReserved {
+		if r.BotSeatReserved[1] {
 			return 0, fmt.Errorf("seat reserved for bot")
 		}
 		r.Players[1] = &Player{ID: 2, Name: name, Connected: true}
@@ -96,7 +103,7 @@ func (r *Room) RemovePlayer(playerID int) (empty bool) {
 		if p != nil {
 			p.Connected = false
 			if p.IsBot {
-				r.BotSeatReserved = false
+				r.BotSeatReserved[playerID-1] = false
 			}
 		}
 	}
@@ -222,47 +229,70 @@ func (r *Room) connectedCountLocked() int {
 }
 
 func (r *Room) ReserveBotSeat() error {
+	return r.ReserveBotSeatAt(1)
+}
+
+func (r *Room) ReserveBotSeatAt(slot int) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.Players[1] != nil {
+	if slot < 0 || slot > 1 {
+		return fmt.Errorf("invalid slot %d", slot)
+	}
+	if r.Players[slot] != nil {
 		return fmt.Errorf("seat already taken")
 	}
-	r.BotSeatReserved = true
+	r.BotSeatReserved[slot] = true
 	return nil
 }
 
 func (r *Room) AddBotPlayer(name, botID, botClass string) (int, error) {
+	return r.AddBotPlayerAt(1, name, botID, botClass)
+}
+
+func (r *Room) AddBotPlayerAt(slot int, name, botID, botClass string) (int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if !r.BotSeatReserved {
-		return 0, fmt.Errorf("no bot seat reserved")
+	if slot < 0 || slot > 1 {
+		return 0, fmt.Errorf("invalid slot %d", slot)
+	}
+	if !r.BotSeatReserved[slot] {
+		return 0, fmt.Errorf("no bot seat reserved at slot %d", slot)
 	}
 
-	r.Players[1] = &Player{
-		ID:        2,
+	r.Players[slot] = &Player{
+		ID:        slot + 1,
 		Name:      name,
 		Connected: true,
 		IsBot:     true,
 		BotID:     botID,
 		BotClass:  botClass,
 	}
-	r.BotSeatReserved = false
+	r.BotSeatReserved[slot] = false
 
-	if r.State == RoomWaiting {
+	if r.State == RoomWaiting && r.Players[0] != nil && r.Players[1] != nil {
 		r.State = RoomReady
 	}
-	return 2, nil
+	return slot + 1, nil
 }
 
 func (r *Room) CancelBotReservation() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.BotSeatReserved = false
+	r.BotSeatReserved[0] = false
+	r.BotSeatReserved[1] = false
 	if r.autoFillTimer != nil {
 		r.autoFillTimer.Stop()
 		r.autoFillTimer = nil
+	}
+}
+
+func (r *Room) CancelBotReservationAt(slot int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if slot >= 0 && slot <= 1 {
+		r.BotSeatReserved[slot] = false
 	}
 }
 

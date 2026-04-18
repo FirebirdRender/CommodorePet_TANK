@@ -4,7 +4,7 @@ Faithful recreation of the Commodore PET TANK! game with networked multiplayer v
 
 ## Version
 
-Current: **0.9.7.3** (Bot livelock + 8-direction movement + diagonal LOS/fire + spawn-block guard)
+Current: **0.9.8** (Phase 6 G-2: Bot API extended for bot-vs-bot via per-slot seat reservation)
 
 ## Quick Start
 

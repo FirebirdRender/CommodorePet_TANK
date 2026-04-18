@@ -1,3 +1,3 @@
 package server
 
-const AppVersion = "0.9.7.3"
+const AppVersion = "0.9.8"
