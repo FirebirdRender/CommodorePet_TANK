@@ -58,7 +58,12 @@ func main() {
 		droppedInputs = 0
 	}
 
+	// P2: temporarily verbose for stuck-fire diagnosis (0.9.7.3)
+	verbose := os.Getenv("TANK_BOT_VERBOSE") == "1"
 	shouldLog := func(n uint64) bool {
+		if verbose {
+			return true
+		}
 		return n < 10 || n%30 == 0
 	}
 

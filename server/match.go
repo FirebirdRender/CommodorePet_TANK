@@ -50,7 +50,7 @@ func NewMatchController(difficulty int, seed int64, events MatchEvent) *MatchCon
 	gc := engine.NewGameController(difficulty, rng)
 	gc.InitRound()
 
-	return &MatchController{
+	mc := &MatchController{
 		gc:              gc,
 		inputs:          [2]*InputTracker{NewInputTracker(), NewInputTracker()},
 		state:           MatchIdle,
@@ -61,6 +61,9 @@ func NewMatchController(difficulty int, seed int64, events MatchEvent) *MatchCon
 		roundPauseTicks: 120,
 		stopCh:          make(chan struct{}),
 	}
+	mc.inputs[0].SetPlayerID(1)
+	mc.inputs[1].SetPlayerID(2)
+	return mc
 }
 
 func (mc *MatchController) Start() {

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -325,7 +326,7 @@ func TestBot_AutoFillTimerCancelledOnHumanJoin(t *testing.T) {
 	}
 
 	room.mu.Lock()
-	reserved := room.BotSeatReserved
+	reserved := room.BotSeatReserved[1]
 	autoFillTimer := room.autoFillTimer
 	room.mu.Unlock()
 
@@ -339,5 +340,81 @@ func TestBot_AutoFillTimerCancelledOnHumanJoin(t *testing.T) {
 
 	if room.Players[1] == nil || room.Players[1].IsBot {
 		t.Errorf("seat 2 should be human player, but is: %v", room.Players[1])
+	}
+}
+
+// TestBot_VsBot_FullMatch spawns two tank-bot subprocesses (one per seat) into
+// a single room and verifies the match runs to GameOver without panics, leaks
+// or deadlocks. Exercises the slot-aware Room/BotManager APIs introduced for
+// G-2 (BotSeatReserved [2]bool, ReserveBotSeatAt, AddBotPlayerAt,
+// AssignBotToRoomAt, composite botAssignmentKey).
+func TestBot_VsBot_FullMatch(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping bot-vs-bot subprocess test in -short mode")
+	}
+
+	_, handler, botManager := setupTestServerWithBot(t)
+
+	// Resolve bot binary via repo-root walk, since `go test` runs in server/.
+	if os.Getenv("TANK_BOT_BIN") == "" {
+		if abs, err := filepath.Abs(filepath.Join("..", "bin", "tank-bot")); err == nil {
+			if _, err := os.Stat(abs); err == nil {
+				botManager.botBinary = abs
+			}
+		}
+	}
+
+	// Skip if the bot binary is missing (CI sandboxes without `make bot`).
+	if _, err := os.Stat(botManager.botBinary); err != nil {
+		t.Skipf("bot binary not available at %s: %v", botManager.botBinary, err)
+	}
+
+	// Create empty room directly via Hub (no human player) so both seats are
+	// available for bots.
+	room := handler.Hub.CreateRoom(5)
+	roomCode := room.Code
+	t.Cleanup(func() {
+		botManager.ReleaseBot(roomCode)
+		handler.Hub.RemoveRoom(roomCode)
+	})
+
+	if err := botManager.AssignBotToRoomAt(roomCode, 0, "mvp"); err != nil {
+		t.Fatalf("assign bot to seat 0: %v", err)
+	}
+	if err := botManager.AssignBotToRoomAt(roomCode, 1, "mvp"); err != nil {
+		t.Fatalf("assign bot to seat 1: %v", err)
+	}
+
+	// Wait until both bots have connected and the room transitions to playing.
+	deadline := time.Now().Add(10 * time.Second)
+	var mc *MatchController
+	for time.Now().Before(deadline) {
+		if room.PlayerCount() == 2 && room.GetState() == RoomPlaying {
+			mc = handler.Registry().GetMatch(roomCode)
+			if mc != nil {
+				break
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if mc == nil {
+		t.Fatalf("match did not reach RoomPlaying within 10s (state=%v, players=%d)",
+			room.GetState(), room.PlayerCount())
+	}
+
+	// Wait for GameOver. Cap at 180s — a real bot-vs-bot match typically ends
+	// in 30-90s once both bots start exchanging fire, but timing varies with
+	// difficulty 5 spawn layout and AI luck. The 180s ceiling tolerates the
+	// rare unlucky chase loop without making the test wall-clock prohibitive.
+	matchDeadline := time.Now().Add(180 * time.Second)
+	for time.Now().Before(matchDeadline) {
+		if mc.GetState() == MatchGameOver {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if mc.GetState() != MatchGameOver {
+		t.Fatalf("match did not reach GameOver within 180s (state=%v, tick=%d)",
+			mc.GetState(), mc.CurrentTick())
 	}
 }

@@ -172,17 +172,20 @@ func (gc *GameController) ShotSpawnPosition(tank *Tank) ([2]int, bool) {
 func (gc *GameController) FireShot(playerID int) {
 	tank := gc.Tanks[playerID-1]
 	if !tank.CanFire() {
+		debugFire(playerID, tank, "skip:cannot_fire")
 		return
 	}
 
 	for _, s := range gc.Shots {
 		if s.Active && s.OwnerID == playerID {
+			debugFire(playerID, tank, "skip:active_shot_exists")
 			return
 		}
 	}
 
 	pos, ok := gc.ShotSpawnPosition(tank)
 	if !ok {
+		debugFire(playerID, tank, "skip:spawn_blocked")
 		return
 	}
 
@@ -203,6 +206,7 @@ func (gc *GameController) FireShot(playerID int) {
 	shot := NewShot(pos[0], pos[1], tank.Dir, playerID, maxRange)
 	gc.Shots = append(gc.Shots, shot)
 	tank.ConsumeShot()
+	debugFire(playerID, tank, "ok:fired")
 
 	if tank.ShotsLeft == 0 {
 		gc.EmptyGunPending[playerID] = true

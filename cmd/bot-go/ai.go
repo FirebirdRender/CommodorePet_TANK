@@ -83,6 +83,14 @@ type BotState struct {
 	// re-commits").
 	nextActionTick uint64
 
+	// One-shot flag: P2 gets a +1 tick offset on its very first commitMove to
+	// break the symmetric phase-lock that arises when both bots are spawned
+	// mirror-image with identical seeds and identical difficulty. Without the
+	// offset both bots tick in lockstep through rotate→gate→rotate, never
+	// reaching a fire opportunity. After the first decision, normal scheduling
+	// (driven by ack timing + jitter from grid asymmetry) keeps them desynced.
+	firstActionDone bool
+
 	lastLogLine string
 	decideCount int
 }
@@ -147,10 +155,14 @@ func thinkingDelayTicks(difficulty int) uint64 {
 // carries the engine's int value. Local copy avoids importing the engine
 // package into the bot binary.
 const (
-	dirUp    = 1
-	dirDown  = 2
-	dirLeft  = 3
-	dirRight = 4
+	dirUp        = 1
+	dirDown      = 2
+	dirLeft      = 3
+	dirRight     = 4
+	dirUpLeft    = 5
+	dirUpRight   = 6
+	dirDownLeft  = 7
+	dirDownRight = 8
 )
 
 func dirToward(myX, myY, exX, exY int) int {
@@ -158,6 +170,21 @@ func dirToward(myX, myY, exX, exY int) int {
 	dy := exY - myY
 	if dx == 0 && dy == 0 {
 		return 0
+	}
+	// Exact 45-degree diagonal: prefer diagonal facing so canFireWithLOS can
+	// detect alignment and the engine can spawn a diagonal projectile (engine
+	// supports DirUpLeft..DirDownRight with DirectionVectors {+/-1, +/-1}).
+	if dx != 0 && dy != 0 && abs(dx) == abs(dy) {
+		if dx > 0 && dy > 0 {
+			return dirDownRight
+		}
+		if dx > 0 && dy < 0 {
+			return dirUpRight
+		}
+		if dx < 0 && dy > 0 {
+			return dirDownLeft
+		}
+		return dirUpLeft
 	}
 	if abs(dx) >= abs(dy) {
 		if dx > 0 {
@@ -186,6 +213,14 @@ func dirToKey(d int) string {
 		return "left"
 	case dirRight:
 		return "right"
+	case dirUpLeft:
+		return "up_left"
+	case dirUpRight:
+		return "up_right"
+	case dirDownLeft:
+		return "down_left"
+	case dirDownRight:
+		return "down_right"
 	default:
 		return ""
 	}
@@ -242,6 +277,15 @@ func (bs *BotState) Decide(tick uint64, tanks [2]botsdk.TankInfo) []InputAction 
 		return nil
 	}
 
+	// Watchdog: if no action is pending but the gate is still locked far past
+	// any legitimate thinking delay, force-clear it. This catches future bugs
+	// where a code path sets nextActionTick but never resolves (e.g. ack-path
+	// regression, tick-counter wraparound, or a held-key state we haven't
+	// thought of yet) so a single defect cannot livelock the bot indefinitely.
+	if tick > bs.nextActionTick+thinkingDelayTicks(bs.Difficulty)*3 {
+		bs.nextActionTick = 0
+	}
+
 	return bs.startNewAction(tick, my, enemy)
 }
 
@@ -255,6 +299,17 @@ func (bs *BotState) checkAck(my *botsdk.TankInfo, tick uint64) (acted bool, rele
 		rotated := my.Dir != p.beforeDir
 		if moved || rotated {
 			bs.clearPending("move_ack")
+			// Rotation-only ack (barrel-curl first input): the engine consumed our
+			// input as a turn, not a translation, so we accomplished only half of
+			// the intended action. Clearing nextActionTick lets startNewAction()
+			// either fire (if now aligned with enemy) or commit the second input
+			// (the actual move) on the very next tick instead of idling out the
+			// remainder of the thinking-delay gate. Without this reset the bot
+			// burns ~28 of 30 gate ticks doing nothing after a rotation acks in
+			// 1-2 ticks — root cause of the 0.9.7 bot-vs-bot livelock.
+			if rotated && !moved {
+				bs.nextActionTick = tick
+			}
 			if bs.heldMove != "" {
 				key := bs.heldMove
 				bs.heldMove = ""
@@ -411,6 +466,12 @@ func (bs *BotState) commitMove(tick uint64, my *botsdk.TankInfo, key string) []I
 	}
 	bs.heldMove = key
 	bs.nextActionTick = tick + thinkingDelayTicks(bs.Difficulty)
+	if !bs.firstActionDone {
+		bs.firstActionDone = true
+		if bs.MyID == 2 {
+			bs.nextActionTick++
+		}
+	}
 	return []InputAction{{Key: key, Action: "down"}}
 }
 
@@ -469,6 +530,14 @@ func (bs *BotState) canFireWithLOS(my, enemy *botsdk.TankInfo) bool {
 	}
 	myBarrelX, myBarrelY := barrelPos(my)
 	exBarrelX, exBarrelY := barrelPos(enemy)
+	// Engine ShotSpawnPosition refuses to spawn into a wall cell, so firing
+	// into a wall directly in front of us silently no-ops (sh stays at 10, no
+	// ack ever). Reject when our barrel cell is non-open AND not occupied by
+	// the enemy tank itself (point-blank: barrel == enemy.X,enemy.Y is fine —
+	// engine ShotSpawnPosition only rejects CellWall, tanks are not walls).
+	if !bs.isOpen(myBarrelX, myBarrelY) && !(myBarrelX == enemy.X && myBarrelY == enemy.Y) {
+		return false
+	}
 	openForLOS := func(x, y int) bool {
 		if x == myBarrelX && y == myBarrelY {
 			return true
@@ -501,6 +570,32 @@ func (bs *BotState) canFireWithLOS(my, enemy *botsdk.TankInfo) bool {
 			if !openForLOS(x, y) {
 				return false
 			}
+		}
+		return true
+	}
+	// 45-degree diagonal alignment: walk one cell diagonally per step. Engine
+	// Shot.Step uses DirectionVectors {+/-1, +/-1} so a diagonal projectile
+	// traverses exactly the same cells we check here. Without this, two bots
+	// pacing at offsets like (12,10) vs (15,9) never get a fire opportunity
+	// even though the engine fully supports the shot.
+	dx := enemy.X - my.X
+	dy := enemy.Y - my.Y
+	if dx != 0 && dy != 0 && abs(dx) == abs(dy) {
+		stepX := 1
+		if dx < 0 {
+			stepX = -1
+		}
+		stepY := 1
+		if dy < 0 {
+			stepY = -1
+		}
+		x, y := my.X+stepX, my.Y+stepY
+		for x != enemy.X {
+			if !openForLOS(x, y) {
+				return false
+			}
+			x += stepX
+			y += stepY
 		}
 		return true
 	}
@@ -565,6 +660,26 @@ func (bs *BotState) moveTowardEnemy(my, enemy *botsdk.TankInfo) string {
 	if !bs.isWall(my.X, my.Y, perp) {
 		return perp
 	}
+	// Both cardinal options are walled. Engine supports 8 movement directions
+	// and spawns reserve a 3x3 grid, so at least one diagonal toward the enemy
+	// should be traversable. Pick the diagonal whose dx/dy signs match the
+	// vector to the enemy; this prevents the spawn-pocket idle livelock where
+	// a 4-cardinal-only bot has all neighbors walled in tight terrain.
+	if dx != 0 && dy != 0 {
+		var diag string
+		if dx > 0 && dy > 0 {
+			diag = "down_right"
+		} else if dx > 0 && dy < 0 {
+			diag = "up_right"
+		} else if dx < 0 && dy > 0 {
+			diag = "down_left"
+		} else {
+			diag = "up_left"
+		}
+		if !bs.isWall(my.X, my.Y, diag) {
+			return diag
+		}
+	}
 	return bs.fallbackMove(my.X, my.Y)
 }
 
@@ -619,7 +734,7 @@ func (bs *BotState) isWall(x, y int, direction string) bool {
 }
 
 func (bs *BotState) fallbackMove(x, y int) string {
-	directions := []string{"up", "down", "left", "right"}
+	directions := []string{"up", "down", "left", "right", "up_left", "up_right", "down_left", "down_right"}
 	start := rand.Intn(len(directions))
 	for i := range directions {
 		d := directions[(start+i)%len(directions)]
@@ -652,6 +767,14 @@ func barrelPos(t *botsdk.TankInfo) (int, int) {
 		return t.X - 1, t.Y
 	case dirRight:
 		return t.X + 1, t.Y
+	case dirUpLeft:
+		return t.X - 1, t.Y - 1
+	case dirUpRight:
+		return t.X + 1, t.Y - 1
+	case dirDownLeft:
+		return t.X - 1, t.Y + 1
+	case dirDownRight:
+		return t.X + 1, t.Y + 1
 	default:
 		return -1, -1
 	}

@@ -1,5 +1,33 @@
 ## Changelog
 
+### 0.9.7.3 - 2026-04-17 — Bot AI: livelock + 8-direction + diagonal fire + spawn-block guard
+
+**Bugfix.** `TestBot_VsBot_FullMatch` was flaking due to four independent defects in the bot AI that compounded under specific spawn geometries. After this release the test passes 5/5 deterministically.
+
+**Defect 1 — Symmetric phase-lock livelock.** Mirror-image spawns with identical seeds and difficulty caused both bots to tick in lockstep through `rotate→gate→rotate`, never reaching a fire opportunity. **Fix:** P2 gets a one-shot `+1` tick offset on its first `commitMove` (`firstActionDone` flag in `BotState`). After the first decision, ack timing + grid asymmetry keep them desynced naturally.
+
+**Defect 2 — Rotation-only ack burned the gate.** When a `move` input was consumed by the engine as a turn (not a translation — barrel-curl first input), the bot still waited the full `thinkingDelayTicks` before its next decision, idling ~28 of 30 gate ticks. **Fix:** `checkAck` now resets `nextActionTick=tick` when the ack is rotation-only, letting `startNewAction` either fire (if newly aligned) or commit the second input (the actual move) on the very next tick.
+
+**Defect 3 — 8-direction movement not exploited.** Bot only considered the 4 cardinal directions for movement and LOS, despite the engine supporting `DirUpLeft..DirDownRight` with `DirectionVectors {+/-1, +/-1}`. **Fix (Option A, Oracle-confirmed):**
+
+- `dirToward` now returns one of the 4 diagonal direction constants when `dx != 0 && dy != 0 && abs(dx) == abs(dy)`.
+- `dirToKey` maps the 4 new direction constants to `up_left`/`up_right`/`down_left`/`down_right`.
+- `canFireWithLOS` adds a 45° diagonal alignment branch that walks one cell diagonally per step, matching engine `Shot.Step` semantics exactly.
+
+**Defect 4 — `FireShot` spawn-block livelock.** When the cell directly in front of the bot was a `CellWall`, `canFireWithLOS` returned true (own-barrel cell unconditionally treated as open) but the engine's `ShotSpawnPosition` silently rejected the shot. `ShotsLeft` never decremented, no `pendingFire` ack ever fired, and the bot infinite-looped trying to fire (578× `skip:spawn_blocked` vs 1× `ok:fired` in the captured failing run). **Fix:** `canFireWithLOS` now rejects when the barrel cell is non-open, with a **point-blank exception** for when the barrel cell is occupied by the enemy tank itself (engine `ShotSpawnPosition` only rejects `CellWall`, not tanks/barrels — adjacent enemy is a valid fire target).
+
+**Watchdog.** Added a 3× `thinkingDelayTicks` watchdog in `Decide` that force-clears `nextActionTick` if no action is pending but the gate is still locked far past any legitimate thinking delay. Defense-in-depth against future regressions.
+
+**Debug instrumentation (env-gated, defaults off — zero perf cost when disabled):**
+
+- `TANK_BOT_VERBOSE=1` — bot per-tick decision log (`cmd/bot-go/main.go`).
+- `TANK_FIRE_DEBUG=1` — engine logs all four `FireShot` outcomes: `ok:fired`, `skip:cannot_fire`, `skip:active_shot_exists`, `skip:spawn_blocked` (`engine/debug.go` + `engine/game.go`).
+- `TANK_INPUT_DEBUG=1` — server logs Fire keypress lifecycle: `KeyDown(Fire) DROPPED/QUEUED`, `KeyUp(Fire)`, `Consume` (`server/input.go`).
+
+Player IDs are now wired through `InputState.SetPlayerID` from `NewMatchController` so the input-debug logs correctly label P1 vs P2.
+
+**Bumped:** `AppVersion = "0.9.7.3"`. `ProtocolVersion` unchanged at `1.0.0`.
+
 ### 0.9.7.2 - 2026-04-17 — Server version banner
 
 **Feature.** The server now logs its version on the startup line so operators can identify the running build at a glance, both in the console and in log files.
