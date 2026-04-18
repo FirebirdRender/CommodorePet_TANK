@@ -4,7 +4,7 @@ Faithful recreation of the Commodore PET TANK! game with networked multiplayer v
 
 ## Version
 
-Current: **0.9.8.1** (Hotfix: bot fire LOS regression from 0.9.7.3 — `canFireWithLOS` now matches engine `ShotSpawnPosition` semantics exactly)
+Current: **0.9.9** (Phase 6 G-3: bot-vs-bot load harness `cmd/bot-load` — 100-match tournament with 10×10 skill matrix, real-network subprocess bots, server goroutine-leak verification via pprof; Phase 6 closed at `v1.0.0-phase6`)
 
 ## Quick Start
 

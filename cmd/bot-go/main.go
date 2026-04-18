@@ -16,12 +16,27 @@ import (
 	botsdk "github.com/FirebirdRender/CommodorePet_TANK/bot-sdk-go"
 )
 
+type matchSummary struct {
+	Winner        int    `json:"winner"`
+	FinalWins     [2]int `json:"final_wins"`
+	MyPlayerID    int    `json:"my_player_id"`
+	Difficulty    int    `json:"difficulty"`
+	FireCount     uint64 `json:"fire_count"`
+	MoveCount     uint64 `json:"move_count"`
+	MineCount     uint64 `json:"mine_count"`
+	DroppedInputs uint64 `json:"dropped_inputs"`
+	Ticks         uint64 `json:"ticks"`
+}
+
 func main() {
 	serverURL := flag.String("server", "ws://localhost:8080/ws", "WebSocket server URL")
 	roomCode := flag.String("room", "", "Room code (auto-create if not provided)")
 	playerName := flag.String("name", "CPU", "Bot player name")
 	token := flag.String("token", "", "Auth token (auto-create if not provided)")
 	playerID := flag.Int("player-id", 1, "Player ID (1 or 2)")
+	skill := flag.Int("skill", -1, "Skill level 0-9 (overrides server difficulty for AI thinking-delay; -1 = use server-provided)")
+	exitAfterGameOver := flag.Bool("exit-after-gameover", false, "Exit cleanly after first GameOver instead of sending play_again (G-3 harness mode)")
+	summaryFile := flag.String("summary-file", "", "Write per-match JSON summary to this path on GameOver (only if -exit-after-gameover)")
 	flag.Parse()
 
 	var rcode string
@@ -50,9 +65,14 @@ func main() {
 	var droppedInputs uint64
 
 	client.OnGameStart = func(msg *botsdk.GameStartPayload) {
+		effectiveDiff := msg.Difficulty
+		if *skill >= 0 && *skill <= 9 {
+			effectiveDiff = *skill + 1
+			log.Printf("Skill override: -skill=%d -> effectiveDifficulty=%d (server reported %d)", *skill, effectiveDiff, msg.Difficulty)
+		}
 		log.Printf("Game start - difficulty: %d, size: %dx%d, your_player_id=%d",
-			msg.Difficulty, len(msg.Grid[0]), len(msg.Grid), msg.YourPlayerID)
-		botState = NewBotState(msg.YourPlayerID, msg.Difficulty, len(msg.Grid[0]), len(msg.Grid))
+			effectiveDiff, len(msg.Grid[0]), len(msg.Grid), msg.YourPlayerID)
+		botState = NewBotState(msg.YourPlayerID, effectiveDiff, len(msg.Grid[0]), len(msg.Grid))
 		botState.LoadKeyframe(msg.Grid)
 		tickCount = 0
 		droppedInputs = 0
@@ -139,6 +159,29 @@ func main() {
 	client.OnGameOver = func(msg *botsdk.GameOverPayload) {
 		log.Printf("Game over - winner: %d (final: P1 %d, P2 %d) dropped_inputs=%d",
 			msg.Winner, msg.FinalWins[0], msg.FinalWins[1], droppedInputs)
+		if *exitAfterGameOver {
+			if *summaryFile != "" && botState != nil {
+				summary := matchSummary{
+					Winner:        msg.Winner,
+					FinalWins:     msg.FinalWins,
+					MyPlayerID:    botState.MyID,
+					Difficulty:    botState.Difficulty,
+					FireCount:     botState.FireCount,
+					MoveCount:     botState.MoveCount,
+					MineCount:     botState.MineCount,
+					DroppedInputs: droppedInputs,
+					Ticks:         tickCount,
+				}
+				if data, err := json.MarshalIndent(summary, "", "  "); err != nil {
+					log.Printf("Marshal summary error: %v", err)
+				} else if err := os.WriteFile(*summaryFile, data, 0644); err != nil {
+					log.Printf("Write summary error: %v", err)
+				} else {
+					log.Printf("Wrote summary to %s", *summaryFile)
+				}
+			}
+			os.Exit(0)
+		}
 		if err := client.SendPlayAgain(); err != nil {
 			log.Printf("Send play_again error: %v", err)
 		}

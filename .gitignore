@@ -87,6 +87,12 @@ coverage.out
 cmd/server/server
 /bot-go
 /bot-go.exe
+/bot-load
+/bot-load.exe
+
+# Bot-load harness run artifacts (Phase 6 G-3)
+/bot-load-*.json
+/bot-load-*.log
 
 # WASM build output (rebuilt from source)
 web/game.wasm

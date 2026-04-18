@@ -92,6 +92,15 @@ type BotState struct {
 	// (driven by ack timing + jitter from grid asymmetry) keeps them desynced.
 	firstActionDone bool
 
+	// G-3 counters: per-match action telemetry, read by cmd/bot-go/main.go
+	// at GameOver to write the summary JSON consumed by cmd/bot-load. Counts
+	// emitted intents (fire/mine key-down, committed move key-down), not
+	// engine-confirmed effects. Increment sites: commitMove (move), fire path
+	// in startNewAction (fire), mine path in startNewAction (mine).
+	FireCount uint64
+	MoveCount uint64
+	MineCount uint64
+
 	lastLogLine string
 	decideCount int
 }
@@ -388,6 +397,7 @@ func (bs *BotState) startNewAction(tick uint64, my, enemy *botsdk.TankInfo) []In
 		}
 		bs.heldFire = true
 		bs.nextActionTick = tick + thinkingDelayTicks(bs.Difficulty)
+		bs.FireCount++
 		return []InputAction{{Key: "fire", Action: "down"}}
 	}
 
@@ -406,6 +416,7 @@ func (bs *BotState) startNewAction(tick uint64, my, enemy *botsdk.TankInfo) []In
 			}
 			bs.heldMine = true
 			bs.nextActionTick = tick + thinkingDelayTicks(bs.Difficulty)
+			bs.MineCount++
 			return []InputAction{{Key: "mine", Action: "down"}}
 		}
 	}
@@ -467,6 +478,7 @@ func (bs *BotState) commitMove(tick uint64, my *botsdk.TankInfo, key string) []I
 	}
 	bs.heldMove = key
 	bs.nextActionTick = tick + thinkingDelayTicks(bs.Difficulty)
+	bs.MoveCount++
 	if !bs.firstActionDone {
 		bs.firstActionDone = true
 		if bs.MyID == 2 {

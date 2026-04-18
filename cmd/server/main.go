@@ -5,10 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -16,23 +17,29 @@ import (
 )
 
 func main() {
-	addr := flag.String("addr", ":8080", "listen address")
+	addr := flag.String("addr", ":8080", "listen address (use :0 for OS-assigned port; resolved port logged as 'listening on :PORT')")
 	dir := flag.String("dir", "web", "static files directory")
 	cors := flag.String("cors", "*", "CORS allowed origin")
 	maxRoomAge := flag.Duration("max-room-age", 30*time.Minute, "stale room cleanup interval")
+	pprofAddr := flag.String("pprof-addr", "", "if non-empty, expose net/http/pprof on this address (e.g. :6060) for goroutine-leak detection")
 	flag.Parse()
+
+	ln, err := net.Listen("tcp", *addr)
+	if err != nil {
+		log.Fatalf("listen %s: %v", *addr, err)
+	}
+	resolvedAddr := ln.Addr().String()
+	_, resolvedPort, splitErr := net.SplitHostPort(resolvedAddr)
+	if splitErr != nil {
+		resolvedPort = resolvedAddr
+	}
 
 	hub := server.NewHub()
 	tokens := server.NewTokenStore()
 	handler := server.NewWSHandler(hub, tokens)
 	roomAPI := server.NewRoomAPI(hub, handler.Registry(), tokens)
 
-	serverAddr := *addr
-	if strings.HasPrefix(serverAddr, ":") {
-		serverAddr = "localhost" + serverAddr
-	} else if !strings.Contains(serverAddr, ":") {
-		serverAddr = "localhost:" + serverAddr
-	}
+	serverAddr := "localhost:" + resolvedPort
 	botManager := server.NewBotManager(hub, handler, tokens, serverAddr)
 	roomAPI.SetBotManager(botManager)
 
@@ -56,11 +63,19 @@ func main() {
 	wrappedMux := server.CORSMiddleware(*cors, mux)
 
 	srv := &http.Server{
-		Addr:         *addr,
 		Handler:      wrappedMux,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 300 * time.Second,
 		IdleTimeout:  120 * time.Second,
+	}
+
+	if *pprofAddr != "" {
+		go func() {
+			log.Printf("[pprof] listening on %s (handlers auto-registered on http.DefaultServeMux)", *pprofAddr)
+			if err := http.ListenAndServe(*pprofAddr, nil); err != nil {
+				log.Printf("[pprof] server error: %v", err)
+			}
+		}()
 	}
 
 	go func() {
@@ -78,10 +93,8 @@ func main() {
 		<-sigCh
 		log.Println("shutting down...")
 
-		// Notify players and drain matches (30s)
 		hub.Shutdown(30*time.Second, handler.Registry())
 
-		// Stop HTTP server (15s)
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(ctx); err != nil {
@@ -89,8 +102,8 @@ func main() {
 		}
 	}()
 
-	log.Printf("TANK! server (v%s) listening on %s", server.AppVersion, *addr)
-	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+	log.Printf("TANK! server (v%s) listening on :%s", server.AppVersion, resolvedPort)
+	if err := srv.Serve(ln); err != http.ErrServerClosed {
 		log.Fatalf("server error: %v", err)
 	}
 	log.Println("server stopped")

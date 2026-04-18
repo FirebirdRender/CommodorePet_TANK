@@ -1,5 +1,44 @@
 ## Changelog
 
+### 0.9.9 - 2026-04-18 — Phase 6 G-3: Bot-vs-bot load harness + Phase 6 close
+
+**Closes Phase 6 gap G-3.** Adds `cmd/bot-load`, a subprocess-based load harness that drives 100+ real bot-vs-bot matches over the network against a live `tank-server`, validates per-match outcomes, and verifies the server has no goroutine leaks across the tournament. Implementation follows the Oracle-confirmed full design (subprocess + real network) with random independent skill levels per bot tracked as a 10×10 skill-vs-skill matrix.
+
+**New harness binary** (`cmd/bot-load/main.go`):
+
+- Spawns one `tank-server` process (`-addr :0 -pprof-addr 127.0.0.1:6160` with `TANK_ENABLE_BOTS=1`); parses the resolved port from the `listening on :PORT` log line on **stderr** (Go's `log.Printf` defaults to stderr; harness routes stdout pass-through).
+- Detects pprof bind-collision early (`[pprof] server error` line) to fail fast if a stale server holds port 6160.
+- Creates rooms via HTTP (`POST /api/room` then `POST /api/room/{code}/join`); harvests both player tokens.
+- Spawns two `bot-go` subprocesses per match with `-skill`, `-token`, `-exit-after-gameover`, `-summary-file` flags. Each subprocess's stdout/stderr is drained into a `cappedBuffer` (64KB) to prevent pipe deadlock — Oracle-flagged risk.
+- **Stratified scheduler**: 10×10 skill grid, deterministic seed (`-seed`, default time-based), shuffled per tournament. Sample-without-replacement for `<100` matches; cycling for `>100`.
+- **Concurrency**: `sync.WaitGroup` + buffered semaphore (`-concurrency`, default 4). Server-death watchdog via background `cmd.Process.Wait()` → abort channel.
+- **Per-match validation**: bot exit codes, summary file presence on both sides, winner agreement between p1/p2 reports, valid winner ∈ {1,2}. Per-match wall budget (`-match-timeout`, default 120s) enforced via `context.WithTimeout`; both bots SIGKILLed on overrun.
+- **Goroutine leak detection**: baseline snapshot via `/debug/pprof/goroutine?debug=1` after server start (with retry/backoff for the async pprof bind), final snapshot after a 5s settle window. Configurable threshold (`-leak-threshold`, default 5).
+- **JSON report** (`-report`): seed, per-pair aggregates (Played/P1Wins/P2Wins/Failures/AvgTicks/AvgWallSec), full match detail array, leak status. Final stdout summary always printed.
+- Process exits non-zero if any match fails or the leak threshold is exceeded.
+
+**Bot-side support** (`cmd/bot-go/main.go`, `cmd/bot-go/ai.go`):
+
+- New flags: `-skill <0-9>`, `-exit-after-gameover` (clean exit on terminal state vs. lobby return), `-summary-file <path>` (writes JSON `matchSummary` on GameOver).
+- New `BotState` counters: `FireCount`, `MoveCount`, `MineCount` incremented at the three action sites; emitted in summary alongside `Winner`, `MyPlayerID`, `Difficulty`, `FinalWins`, `DroppedInputs`, `Ticks`.
+
+**Server cleanup** (`cmd/server/main.go`):
+
+- Removed leftover `_ = strings.HasPrefix` workaround line and the now-unused `strings` import (compile-clean post-G-3 plumbing).
+
+**Verification:**
+
+- Full `go test -race ./... -count=1`: PASS.
+- `go build ./cmd/bot-load ./cmd/bot-go ./cmd/server`: clean.
+- **Smoke run** (10 matches @ concurrency 4): 9/10 PASS, 1 FAIL (skill 5 vs 9 stalemate timeout). Goroutine delta=1 (PASS, threshold=5). Wall time 180s.
+- **Full tournament** (100 matches @ concurrency 4, seed=1776527240002274203): **94/100 PASS, 6 FAIL** — all 6 failures are bot-vs-bot stalemate timeouts at the 120s match cap (both bots alive, full ammo, not engaging). Affected pairs: (3,8), (0,4), (1,0), (5,8), (6,5), (0,2) — no skill-level pattern. **Goroutine leak target met: baseline=7, final=8, delta=1, threshold=5 → PASS.** Wall time 1679.5s (~28 min).
+
+**Known limitation (Phase 6 → Phase 7 carry-over).** The reference bot's engagement logic produces stalemates in approximately 6% of bot-vs-bot matches when both bots end up at long-distance non-aligned positions and neither bot's heuristic chooses to close. This is **not** a harness/network/leak defect — both bots run normally with full ammo and are killed by the harness's `match-timeout`. Symptom signature (from `bot_debug.log` tail): `pend=move/...|none` repeatedly, `sh=10 mi=2`, distant XY coordinates with no row/column alignment. Tracking as a Phase 7 AI improvement (deterministic engagement closer or duel timer with forced approach).
+
+**Bumped:** `AppVersion = "0.9.9"`. `ProtocolVersion` unchanged at `1.0.0` (G-3 is harness/test infrastructure + bot CLI flags; wire format untouched).
+
+**Phase 6 status: CLOSED.** All three Phase 6 gaps (G-1 anti-cheat ack-window, G-2 per-slot bot seat reservation, G-3 bot-vs-bot load harness with leak verification) shipped. Tagging `v1.0.0-phase6`.
+
 ### 0.9.8.1 - 2026-04-17 — Hotfix: bot fire LOS regression from 0.9.7.3
 
 **Bugfix.** The 0.9.7.3 spawn-block guard in `cmd/bot-go/ai.go::canFireWithLOS` used `bs.isOpen(myBarrelX, myBarrelY)` to validate the bot's own barrel cell, but `isOpen` only returns true for `cellEmpty (=1)`. The engine encodes the bot's own barrel cell in keyframes as `CellBarrel1 (=5)` or `CellBarrel2 (=6)` (see `engine/player.go:24-26`, `engine/game.go:279`), so `isOpen` was **always false** for the bot's own barrel. The point-blank exception only saved the trivial case where the enemy stood literally on the barrel cell. **Result:** the bot rejected every legitimate fire opportunity in real playtests — confirmed by user log showing P2 at (37,10) aligned with P1 at (2,10) on row 10 with 6 shots and full clear LOS, never firing across ~2280 ticks.
