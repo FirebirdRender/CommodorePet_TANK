@@ -14,6 +14,7 @@ type InputAction struct {
 
 const (
 	cellEmpty   = 1
+	cellWall    = 2
 	cellBarrel1 = 5
 	cellBarrel2 = 6
 )
@@ -514,28 +515,25 @@ func (bs *BotState) findTanks(tanks [2]botsdk.TankInfo) (my, enemy *botsdk.TankI
 	return
 }
 
-// canFireWithLOS returns true iff shots remain, we're strictly same-row or
-// same-column with the enemy, and every cell strictly between us is empty
-// floor — EXCEPT for own barrel and enemy barrel cells, which are not
-// projectile-blocking. Engine spawns the projectile AT the bot's barrel cell
-// (engine/game.go:160 ShotSpawnPosition) and a projectile striking the enemy
-// barrel kills the enemy tank, so both barrel cells count as fire-through for
-// LOS purposes. Without this exception the bot's own barrel (always one cell
-// in its facing direction, i.e. always in the LOS path toward an aligned
-// enemy) blocks every aligned-fire opportunity — root cause of the "marches
-// across the screen, never fires" bug observed in the 0.9.5 playtest.
+// canFireWithLOS returns true iff shots remain, we're strictly same-row/column
+// or 45° diagonally aligned with the enemy, and every cell strictly between us
+// is non-blocking. Fire-through cells: empty floor, our own barrel, enemy
+// barrel. Blocking cells: walls, mines, wreckage, barrels of other tanks.
+//
+// Engine-correctness contract: the spawn-cell check must match
+// engine.ShotSpawnPosition exactly — it rejects ONLY CellWall (out-of-bounds
+// is impossible here because barrelPos derives from a tank inside the grid).
+// Earlier 0.9.7.3 used bs.isOpen() which excluded own barrel, but the bot's
+// own barrel cell is ALWAYS encoded as CellBarrel1/2 in the keyframe — so that
+// guard rejected every legitimate fire and broke the bot completely (observed
+// in 0.9.8 playtest: P2 traversed entire row aligned with P1, never fired).
 func (bs *BotState) canFireWithLOS(my, enemy *botsdk.TankInfo) bool {
 	if my.ShotsLeft <= 0 {
 		return false
 	}
 	myBarrelX, myBarrelY := barrelPos(my)
 	exBarrelX, exBarrelY := barrelPos(enemy)
-	// Engine ShotSpawnPosition refuses to spawn into a wall cell, so firing
-	// into a wall directly in front of us silently no-ops (sh stays at 10, no
-	// ack ever). Reject when our barrel cell is non-open AND not occupied by
-	// the enemy tank itself (point-blank: barrel == enemy.X,enemy.Y is fine —
-	// engine ShotSpawnPosition only rejects CellWall, tanks are not walls).
-	if !bs.isOpen(myBarrelX, myBarrelY) && !(myBarrelX == enemy.X && myBarrelY == enemy.Y) {
+	if !bs.canSpawnShot(myBarrelX, myBarrelY) {
 		return false
 	}
 	openForLOS := func(x, y int) bool {
@@ -610,6 +608,16 @@ func (bs *BotState) isOpen(x, y int) bool {
 		return false
 	}
 	return bs.grid[y][x] == cellEmpty
+}
+
+func (bs *BotState) canSpawnShot(x, y int) bool {
+	if y < 0 || y >= len(bs.grid) {
+		return false
+	}
+	if x < 0 || x >= len(bs.grid[y]) {
+		return false
+	}
+	return bs.grid[y][x] != cellWall
 }
 
 func (bs *BotState) moveTowardEnemy(my, enemy *botsdk.TankInfo) string {

@@ -1,5 +1,17 @@
 ## Changelog
 
+### 0.9.8.1 - 2026-04-17 — Hotfix: bot fire LOS regression from 0.9.7.3
+
+**Bugfix.** The 0.9.7.3 spawn-block guard in `cmd/bot-go/ai.go::canFireWithLOS` used `bs.isOpen(myBarrelX, myBarrelY)` to validate the bot's own barrel cell, but `isOpen` only returns true for `cellEmpty (=1)`. The engine encodes the bot's own barrel cell in keyframes as `CellBarrel1 (=5)` or `CellBarrel2 (=6)` (see `engine/player.go:24-26`, `engine/game.go:279`), so `isOpen` was **always false** for the bot's own barrel. The point-blank exception only saved the trivial case where the enemy stood literally on the barrel cell. **Result:** the bot rejected every legitimate fire opportunity in real playtests — confirmed by user log showing P2 at (37,10) aligned with P1 at (2,10) on row 10 with 6 shots and full clear LOS, never firing across ~2280 ticks.
+
+**Engine ground truth** (`engine/game.go:160 ShotSpawnPosition`): rejects ONLY `CellWall`. Barrel cells, tank cells, mines, wreckage, and shots are all valid spawn cells.
+
+**Fix.** Replaced the broken `isOpen`-based guard with a new `canSpawnShot(x,y) bool` helper that mirrors `ShotSpawnPosition` exactly: returns `grid[y][x] != cellWall`, with OOB safety. Added `cellWall = 2` constant. Updated `canFireWithLOS` docstring to document the engine-correctness contract and the 0.9.7.3 failure mode so this regression cannot recur silently.
+
+**Verification:** Full `go test -race ./... -count=1` PASSES. `TestBot_VsBot_FullMatch` PASS in 38.36s. User playtest log (post-fix) shows 4 fire events at ticks 597/921/1137/1677 — bot correctly fires when aligned and tracks the foe.
+
+**Bumped:** `AppVersion = "0.9.8.1"`. `ProtocolVersion` unchanged at `1.0.0` (bot-only fix; wire format untouched).
+
 ### 0.9.8 - 2026-04-17 — Phase 6 G-2: Bot API extended for bot-vs-bot (per-slot seat reservation)
 
 **Closes Phase 6 gap G-2.** The Bot API previously assumed a fixed P2 seat for the bot, which precluded bot-vs-bot rooms (both seats need to be reservable). This release extends `Room` and `BotManager` to support per-slot seat reservation while preserving the existing single-bot vs-AI flow as the default.

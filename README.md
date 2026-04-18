@@ -4,7 +4,7 @@ Faithful recreation of the Commodore PET TANK! game with networked multiplayer v
 
 ## Version
 
-Current: **0.9.8** (Phase 6 G-2: Bot API extended for bot-vs-bot via per-slot seat reservation)
+Current: **0.9.8.1** (Hotfix: bot fire LOS regression from 0.9.7.3 — `canFireWithLOS` now matches engine `ShotSpawnPosition` semantics exactly)
 
 ## Quick Start
 
