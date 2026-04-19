@@ -42,6 +42,12 @@ test:
 test-headless:
 	go test -race ./client/... -count=1 -run "TestNewGameState|TestApply|TestReset|TestKeyToDir|TestCellGlyphs|TestBarrel|TestGlyphCache|TestNewRenderer|TestColor|TestDimension|TestNewGameSetsPlayerName|TestExportGameStateNativeNoop|TestAnimTick"
 
+test-wasm:
+	@echo "==> WASM compile verification (no runtime tests — requires browser)"
+	GOOS=js GOARCH=wasm go build ./client/...
+	GOOS=js GOARCH=wasm go vet ./client/...
+	@echo "WASM compile check passed."
+
 test-e2e: build-all
 	cd test/e2e && npm install && npx playwright install chromium && npx playwright test
 

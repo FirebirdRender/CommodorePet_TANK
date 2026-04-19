@@ -1,5 +1,38 @@
 ## Changelog
 
+### 0.9.11 - 2026-04-19 — Test infrastructure completion (WAVE7 T3/T4, WAVE8 T6 gaps)
+
+**Testing.** Fills the remaining test infrastructure gaps identified in the WAVE7 and WAVE8 plan reviews.
+
+**WASM compile verification (`Makefile`, `client/wasm_test.go`)**:
+
+- Added `test-wasm` Makefile target: builds and vets the client package under `GOOS=js GOARCH=wasm`
+- Created `client/wasm_test.go` with `//go:build js` tag: compile-time type assertions for `getJSConfig`, `redirectLobby`, `ExportGameState`; runtime `TestJSConfigFields` skips gracefully if `window.tankConfig` isn't set
+- `make test-wasm` now exits 0 with "WASM compile check passed" message
+- Target is deliberately NOT included in `test-all` (cross-compilation is slow)
+
+**Renderer logic tests (`client/renderer_test.go`)**:
+
+- `TestDrawHUD_PanelLayout` (6 sub-tests): P1 panel range (cols 0-18), P2 panel range (cols 21-39), separator columns (19-20), total width verification, label row with AI level, value row formatting
+- `TestDrawGrid_CellGlyphSelection` (6 sub-tests): CellBorder glyph definition (● inverted), CellWall glyph (▚ non-inverted), CellEmpty (space, black), CellBorder vs CellWall differentiation, border detection at corners, interior positions
+- `TestDrawHUD_StatusMessagePriority` (7 sub-tests): winner overrides all, zero shots override last tank, maxShots=0 no status, low shots at 20%, just above threshold, last tank with enough shots, low shots priority over last tank
+
+**Room status API tests (`server/room_api_test.go`)**:
+
+- `TestRoomAPI_GetRoomStatus` (3 sub-tests): NotFound → 404, Waiting → 200 with status:"waiting"+difficulty+players, Playing → 200 with status:"playing"+2 players
+- Uses `api.handleRoomRoutes(w, r)` for full URL dispatch chain validation
+
+**SSE integration tests (`server/room_api_test.go`)**:
+
+- `TestRoomAPI_RoomEvents_SSE` (2 sub-tests): NotFound → receives `room_expired` event, PlayerJoined → receives `player_joined` event after second player joins
+- Uses `httptest.NewServer` (not `NewRecorder`) for proper SSE streaming
+- Uses `context.WithTimeout`/`context.WithCancel` to prevent goroutine hangs
+- Added imports: `bufio`, `context` to existing test file
+
+**WAVE7/WAVE8 plan docs updated**: Both `PROJECT.NET/WAVE7_PLAN.md` and `PROJECT.NET/WAVE8_PLAN.md` now include completion status tables mapping each task to evidence.
+
+**Bumped:** `AppVersion = "0.9.11"`. Protocol unchanged.
+
 ### 0.9.10 - 2026-04-18 — PET-authentic HUD and border rendering
 
 **Visual fidelity fix.** Replaces the single-line text HUD and checkerboard border with PET-authentic two-row header and bubble border matching original PET screenshots.

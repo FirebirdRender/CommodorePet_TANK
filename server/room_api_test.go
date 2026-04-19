@@ -1,7 +1,10 @@
 package server
 
 import (
+	"bufio"
+	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -126,4 +129,201 @@ func TestRoomAPI_JoinRoom(t *testing.T) {
 			t.Errorf("invalid response: %+v", resp)
 		}
 	})
+}
+
+func TestRoomAPI_GetRoomStatus(t *testing.T) {
+	hub := NewHub()
+	ts := NewTokenStore()
+	reg := NewConnRegistry()
+	api := NewRoomAPI(hub, reg, ts)
+
+	t.Run("NotFound", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/api/room/XXXX/status", nil)
+		api.handleRoomRoutes(w, r)
+
+		if w.Code != http.StatusNotFound {
+			t.Errorf("expected 404, got %d", w.Code)
+		}
+	})
+
+	t.Run("Waiting", func(t *testing.T) {
+		room := hub.CreateRoom(5)
+		code := room.Code
+		room.AddPlayer("Alice")
+
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/api/room/"+code+"/status", nil)
+		api.handleRoomRoutes(w, r)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		var resp map[string]any
+		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+			t.Fatal(err)
+		}
+
+		if resp["status"] != "waiting" {
+			t.Errorf("expected status 'waiting', got %v", resp["status"])
+		}
+		if resp["difficulty"] != float64(5) {
+			t.Errorf("expected difficulty 5, got %v", resp["difficulty"])
+		}
+		players, ok := resp["players"].([]any)
+		if !ok || len(players) != 1 {
+			t.Errorf("expected 1 player, got %v", resp["players"])
+		}
+	})
+
+	t.Run("Playing", func(t *testing.T) {
+		room := hub.CreateRoom(5)
+		code := room.Code
+		room.AddPlayer("Alice")
+		room.AddPlayer("Bob")
+		room.SetState(RoomPlaying)
+
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/api/room/"+code+"/status", nil)
+		api.handleRoomRoutes(w, r)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
+		}
+
+		var resp map[string]any
+		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+			t.Fatal(err)
+		}
+
+		if resp["status"] != "playing" {
+			t.Errorf("expected status 'playing', got %v", resp["status"])
+		}
+		players, ok := resp["players"].([]any)
+		if !ok || len(players) != 2 {
+			t.Errorf("expected 2 players, got %v", resp["players"])
+		}
+	})
+}
+
+func TestRoomAPI_RoomEvents_SSE(t *testing.T) {
+	hub := NewHub()
+	ts := NewTokenStore()
+	reg := NewConnRegistry()
+	api := NewRoomAPI(hub, reg, ts)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/room/", api.handleRoomRoutes)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	t.Run("NotFound", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/api/room/XXXX/events", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Accept", "text/event-stream")
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+
+		scanner := bufio.NewScanner(resp.Body)
+		scanner.Split(scanLines)
+
+		eventFound := false
+		for scanner.Scan() {
+			line := scanner.Text()
+			if line == "event: room_expired" {
+				eventFound = true
+				break
+			}
+		}
+
+		if !eventFound {
+			t.Error("expected room_expired event within 2 seconds")
+		}
+	})
+
+	t.Run("PlayerJoined", func(t *testing.T) {
+		room := hub.CreateRoom(5)
+		code := room.Code
+		room.AddPlayer("Alice")
+
+		mux2 := http.NewServeMux()
+		mux2.HandleFunc("/api/room/", api.handleRoomRoutes)
+		server2 := httptest.NewServer(mux2)
+
+		events := make(chan string, 10)
+		goroutineErr := make(chan error, 1)
+		ctx, cancelGoroutine := context.WithCancel(context.Background())
+
+		go func() {
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, server2.URL+"/api/room/"+code+"/events", nil)
+			if err != nil {
+				goroutineErr <- err
+				return
+			}
+			req.Header.Set("Accept", "text/event-stream")
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				goroutineErr <- err
+				return
+			}
+			defer resp.Body.Close()
+
+			scanner := bufio.NewScanner(resp.Body)
+			scanner.Split(scanLines)
+
+			for scanner.Scan() {
+				line := scanner.Text()
+				if strings.HasPrefix(line, "event: ") {
+					select {
+					case events <- line:
+					case <-ctx.Done():
+						return
+					}
+				}
+			}
+		}()
+
+		time.Sleep(100 * time.Millisecond)
+
+		room.AddPlayer("Bob")
+
+		select {
+		case msg := <-events:
+			if !strings.Contains(msg, "player_joined") {
+				t.Errorf("expected player_joined event, got: %s", msg)
+			}
+		case err := <-goroutineErr:
+			t.Errorf("SSE goroutine error: %v", err)
+		case <-time.After(2 * time.Second):
+			t.Error("timeout waiting for player_joined event")
+		}
+
+		cancelGoroutine()
+		go server2.Close()
+		<-time.After(100 * time.Millisecond)
+	})
+}
+
+func scanLines(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	if atEOF && len(data) == 0 {
+		return 0, nil, nil
+	}
+	if i := strings.Index(string(data), "\n"); i >= 0 {
+		return i + 1, data[0:i], nil
+	}
+	if !atEOF {
+		return 0, nil, nil
+	}
+	return 0, data, io.EOF
 }

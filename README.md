@@ -4,7 +4,7 @@ Faithful recreation of the Commodore PET TANK! game with networked multiplayer v
 
 ## Version
 
-Current: **0.9.10** (PET-authentic HUD and border: two-row header with TANKS/SHOTS/MINES labels, circle separator, bubble border perimeter, per-player status messages in border row)
+Current: **0.9.11** (Test infrastructure: WASM compile verification, renderer logic tests, room status API tests, SSE integration tests)
 
 ## Quick Start
 

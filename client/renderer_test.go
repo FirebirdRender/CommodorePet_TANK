@@ -408,3 +408,184 @@ func TestCellBorderGlyph(t *testing.T) {
 		t.Errorf("CellBorder.FgColor = %v, want ColorPhosphorGreen", def.FgColor)
 	}
 }
+
+func TestDrawHUD_PanelLayout(t *testing.T) {
+	t.Run("P1 panel range", func(t *testing.T) {
+		if HUDP1End != 19 {
+			t.Errorf("HUDP1End = %d, want 19", HUDP1End)
+		}
+	})
+
+	t.Run("P2 panel range", func(t *testing.T) {
+		if HUDP2Start != 21 {
+			t.Errorf("HUDP2Start = %d, want 21", HUDP2Start)
+		}
+	})
+
+	t.Run("Separator columns", func(t *testing.T) {
+		sepWidth := HUDP2Start - HUDP1End
+		if sepWidth != 2 {
+			t.Errorf("Separator width = %d, want 2 (HUDP2Start - HUDP1End)", sepWidth)
+		}
+	})
+
+	t.Run("Total width", func(t *testing.T) {
+		total := HUDP1End + 2 + (BoardCols - HUDP2Start)
+		if total != BoardCols {
+			t.Errorf("Total width = %d, want %d (HUDP1End + 2 + (BoardCols - HUDP2Start))", total, BoardCols)
+		}
+	})
+
+	t.Run("HUD label row with AI", func(t *testing.T) {
+		got := hudLabelRow(5)
+		if len(got) != 19 {
+			t.Errorf("hudLabelRow(5) length = %d, want 19", len(got))
+		}
+		if got[18] != '5' {
+			t.Errorf("hudLabelRow(5)[18] = %q, want '5'", got[18])
+		}
+	})
+
+	t.Run("HUD value row single digits", func(t *testing.T) {
+		got := hudValueRow(1, 1, 1)
+		if len(got) != 19 {
+			t.Errorf("hudValueRow(1,1,1) length = %d, want 19", len(got))
+		}
+	})
+}
+
+func TestDrawGrid_CellGlyphSelection(t *testing.T) {
+	t.Run("border glyph definition", func(t *testing.T) {
+		def, ok := cellGlyphs[CellBorder]
+		if !ok {
+			t.Fatalf("cellGlyphs missing CellBorder entry")
+		}
+		if def.Rune != '●' {
+			t.Errorf("CellBorder.Rune = %q, want '●'", def.Rune)
+		}
+		if !def.Inverted {
+			t.Error("CellBorder.Inverted = false, want true")
+		}
+		if def.FgColor != ColorPhosphorGreen {
+			t.Errorf("CellBorder.FgColor = %v, want ColorPhosphorGreen", def.FgColor)
+		}
+	})
+
+	t.Run("interior wall glyph definition", func(t *testing.T) {
+		def, ok := cellGlyphs[CellWall]
+		if !ok {
+			t.Fatalf("cellGlyphs missing CellWall entry")
+		}
+		if def.Rune != '▚' {
+			t.Errorf("CellWall.Rune = %q, want '▚'", def.Rune)
+		}
+		if def.Inverted {
+			t.Error("CellWall.Inverted = true, want false")
+		}
+		if def.FgColor != ColorPhosphorGreen {
+			t.Errorf("CellWall.FgColor = %v, want ColorPhosphorGreen", def.FgColor)
+		}
+	})
+
+	t.Run("CellEmpty glyph definition", func(t *testing.T) {
+		def, ok := cellGlyphs[CellEmpty]
+		if !ok {
+			t.Fatalf("cellGlyphs missing CellEmpty entry")
+		}
+		if def.Rune != ' ' {
+			t.Errorf("CellEmpty.Rune = %q, want ' '", def.Rune)
+		}
+		if def.Inverted {
+			t.Error("CellEmpty.Inverted = true, want false")
+		}
+		if def.FgColor != ColorBlack {
+			t.Errorf("CellEmpty.FgColor = %v, want ColorBlack", def.FgColor)
+		}
+	})
+
+	t.Run("CellBorder differs from CellWall", func(t *testing.T) {
+		borderDef := cellGlyphs[CellBorder]
+		wallDef := cellGlyphs[CellWall]
+		if borderDef.Rune == wallDef.Rune {
+			t.Error("CellBorder.Rune == CellWall.Rune, expected different runes")
+		}
+		if borderDef.Inverted == wallDef.Inverted {
+			t.Error("CellBorder.Inverted == CellWall.Inverted, expected different inverted flags")
+		}
+	})
+
+	t.Run("border detection at corners", func(t *testing.T) {
+		corners := [][2]int{
+			{0, 0},
+			{BoardCols - 1, 0},
+			{0, BoardRows - 1},
+			{BoardCols - 1, BoardRows - 1},
+		}
+		for _, pos := range corners {
+			x, y := pos[0], pos[1]
+			isBorder := x == 0 || x == BoardCols-1 || y == 0 || y == BoardRows-1
+			if !isBorder {
+				t.Errorf("corner (%d,%d) should be border position", x, y)
+			}
+		}
+	})
+
+	t.Run("interior positions not border", func(t *testing.T) {
+		x, y := 5, 5
+		isBorder := x == 0 || x == BoardCols-1 || y == 0 || y == BoardRows-1
+		if isBorder {
+			t.Errorf("position (%d,%d) should NOT be border position", x, y)
+		}
+	})
+}
+
+func TestDrawHUD_StatusMessagePriority(t *testing.T) {
+	t.Run("winner overrides all", func(t *testing.T) {
+		got := hudStatusMessage(0, 10, 1, true)
+		if got != "THE WINNER" {
+			t.Errorf("hudStatusMessage(0,10,1,true) = %q, want %q", got, "THE WINNER")
+		}
+	})
+
+	t.Run("zero shots override last tank", func(t *testing.T) {
+		got := hudStatusMessage(0, 10, 1, false)
+		if got != "OUT OF SHOTS" {
+			t.Errorf("hudStatusMessage(0,10,1,false) = %q, want %q", got, "OUT OF SHOTS")
+		}
+	})
+
+	t.Run("maxShots zero no status", func(t *testing.T) {
+		got := hudStatusMessage(0, 0, 3, false)
+		if got != "" {
+			t.Errorf("hudStatusMessage(0,0,3,false) = %q, want %q", got, "")
+		}
+	})
+
+	t.Run("low shots at 20 percent", func(t *testing.T) {
+		got := hudStatusMessage(2, 10, 3, false)
+		if got != "LOW SHOTS" {
+			t.Errorf("hudStatusMessage(2,10,3,false) = %q, want %q", got, "LOW SHOTS")
+		}
+	})
+
+	t.Run("just above threshold", func(t *testing.T) {
+		got := hudStatusMessage(3, 10, 3, false)
+		if got != "" {
+			t.Errorf("hudStatusMessage(3,10,3,false) = %q, want %q", got, "")
+		}
+	})
+
+	t.Run("last tank with enough shots", func(t *testing.T) {
+		got := hudStatusMessage(5, 10, 1, false)
+		if got != "LAST TANK" {
+			t.Errorf("hudStatusMessage(5,10,1,false) = %q, want %q", got, "LAST TANK")
+		}
+	})
+
+	t.Run("low shots priority over last tank", func(t *testing.T) {
+		got := hudStatusMessage(2, 10, 1, false)
+		if got != "LOW SHOTS" {
+			t.Errorf("hudStatusMessage(2,10,1,false) = %q, want %q", got, "LOW SHOTS")
+		}
+	})
+}
