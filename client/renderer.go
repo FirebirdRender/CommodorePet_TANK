@@ -12,8 +12,9 @@ import (
 )
 
 type Renderer struct {
-	cache   *GlyphCache
-	hudFace *text.GoTextFace
+	cache    *GlyphCache
+	hudFace  *text.GoTextFace
+	cellFace *text.GoTextFace
 }
 
 func NewRenderer() (*Renderer, error) {
@@ -29,10 +30,63 @@ func NewRenderer() (*Renderer, error) {
 		Source: src,
 		Size:   16,
 	}
+	cellFace := &text.GoTextFace{
+		Source: src,
+		Size:   float64(CellSize),
+	}
 	return &Renderer{
-		cache:   gc,
-		hudFace: hudFace,
+		cache:    gc,
+		hudFace:  hudFace,
+		cellFace: cellFace,
 	}, nil
+}
+
+func difficultyToMaxShots(level int) int {
+	switch {
+	case level <= 1:
+		return 6
+	case level <= 4:
+		return 8
+	case level <= 7:
+		return 10
+	default:
+		return 12
+	}
+}
+
+func hudLabelRow(aiLevel int) string {
+	if aiLevel > 0 {
+		s := fmt.Sprintf("TANKS SHOTS MINES %d", aiLevel)
+		if len(s) > 19 {
+			s = s[:19]
+		}
+		return fmt.Sprintf("%-19s", s)
+	}
+	return "TANKS  SHOTS  MINES"[:19]
+}
+
+func hudValueRow(lives, shots, mines int) string {
+	s := fmt.Sprintf("  %d      %d      %d", lives, shots, mines)
+	if len(s) > 19 {
+		s = s[:19]
+	}
+	return fmt.Sprintf("%-19s", s)
+}
+
+func hudStatusMessage(shotsLeft, maxShots, lives int, isWinner bool) string {
+	if isWinner {
+		return "THE WINNER"
+	}
+	if shotsLeft == 0 && maxShots > 0 {
+		return "OUT OF SHOTS"
+	}
+	if maxShots > 0 && shotsLeft <= maxShots/5 {
+		return "LOW SHOTS"
+	}
+	if lives == 1 {
+		return "LAST TANK"
+	}
+	return ""
 }
 
 func (r *Renderer) Draw(screen *ebiten.Image, state *GameState) {
@@ -110,7 +164,12 @@ func (r *Renderer) drawGrid(screen *ebiten.Image, state *GameState) {
 			pos := [2]int{x, y}
 			var glyph *ebiten.Image
 
-			if cellType == CellWreckageP1 || cellType == CellWreckageP2 {
+			isBorder := x == 0 || x == BoardCols-1 || y == 0 || y == BoardRows-1
+
+			if isBorder && (cellType == CellWall || cellType == CellBorder) {
+				borderDef := cellGlyphs[CellBorder]
+				glyph = r.cache.Get(borderDef.Rune, borderDef.FgColor, ColorBlack, borderDef.Inverted)
+			} else if cellType == CellWreckageP1 || cellType == CellWreckageP2 {
 				if dir, ok := barrelPositions[pos]; ok {
 					curlRune := '/'
 					if dir == DirUp || dir == DirDownRight || dir == DirLeft {
@@ -210,17 +269,28 @@ func (r *Renderer) drawExplosions(screen *ebiten.Image, state *GameState) {
 }
 
 func (r *Renderer) drawHUD(screen *ebiten.Image, state *GameState) {
+	// 1. Fill entire HUD bar with phosphor green
 	vector.FillRect(screen, 0, 0, float32(BoardCols*CellSize), float32(HUDHeight),
 		ColorPhosphorGreen, false)
 
+	// 2. Center separator: 2 columns of inverted circles (cols 19-20)
+	sepGlyph := r.cache.Get('●', ColorPhosphorGreen, ColorBlack, true)
+	for row := 0; row < 2; row++ {
+		py := float64(row * CellSize)
+		for col := HUDP1End; col < HUDP2Start; col++ {
+			px := float64(col * CellSize)
+			op := &ebiten.DrawImageOptions{}
+			op.GeoM.Translate(px, py)
+			screen.DrawImage(sepGlyph, op)
+		}
+	}
+
+	// 3. Player panels (inverted text: black glyphs on green background)
 	p1 := state.Tanks[0]
 	p2 := state.Tanks[1]
-	p1Lives := "??"
-	p1Shots := "??"
-	p1Mines := "??"
-	p2Lives := "??"
-	p2Shots := "??"
-	p2Mines := "??"
+
+	p1Lives, p1Shots, p1Mines := "??", "??", "??"
+	p2Lives, p2Shots, p2Mines := "??", "??", "??"
 	if p1.Active || p1.Lives > 0 {
 		p1Lives = fmt.Sprintf("%d", p1.Lives)
 		p1Shots = fmt.Sprintf("%d", p1.ShotsLeft)
@@ -232,36 +302,83 @@ func (r *Renderer) drawHUD(screen *ebiten.Image, state *GameState) {
 		p2Mines = fmt.Sprintf("%d", p2.MinesLeft)
 	}
 
-	p1Name := state.PlayerName
-	if p1Name == "" {
-		p1Name = "P1"
-	}
-	p2Name := state.OpponentName
-	if p2Name == "" {
-		p2Name = "P2"
+	ai1 := 0
+	ai2 := 0
+	if state.Difficulty > 0 {
+		// In VS AI, both players see the AI difficulty label
+		ai2 = state.Difficulty
 	}
 
-	p1Text := fmt.Sprintf("%s: L:%s S:%s M:%s", p1Name, p1Lives, p1Shots, p1Mines)
-	r.drawInvertedText(screen, p1Text, 4, 4, r.hudFace)
+	p1Row0 := hudLabelRow(ai1)
+	p1Row1 := hudValueRow(mustInt(p1Lives), mustInt(p1Shots), mustInt(p1Mines))
+	p2Row0 := hudLabelRow(ai2)
+	p2Row1 := hudValueRow(mustInt(p2Lives), mustInt(p2Shots), mustInt(p2Mines))
 
-	p2Text := fmt.Sprintf("%s: L:%s S:%s M:%s", p2Name, p2Lives, p2Shots, p2Mines)
-	r.drawInvertedTextRight(screen, p2Text, BoardCols*CellSize-4, 4, r.hudFace)
+	r.drawHUDPanel(screen, 0, p1Row0, p1Row1)
+	r.drawHUDPanel(screen, HUDP2Start, p2Row0, p2Row1)
 
-	centerX := BoardCols * CellSize / 2
-	glyph := r.cache.Get('●', ColorPhosphorGreen, ColorBlack, true)
-	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Translate(float64(centerX-CellSize/2), float64(4))
-	screen.DrawImage(glyph, op)
-
-	statusY := float64(22)
-	if state.Winner > 0 {
-		winnerText := fmt.Sprintf("P%d WINS!", state.Winner)
-		r.drawInvertedText(screen, winnerText, 4, statusY, r.hudFace)
-	} else if p1.ShotsLeft == 0 && p1.Active {
-		r.drawInvertedText(screen, "OUT OF SHOTS", 4, statusY, r.hudFace)
-	} else if p2.ShotsLeft == 0 && p2.Active {
-		r.drawInvertedText(screen, "OUT OF SHOTS", 4, statusY, r.hudFace)
+	// 4. Per-player status messages in the top border row
+	maxShots := difficultyToMaxShots(state.Difficulty)
+	p1Msg := hudStatusMessage(p1.ShotsLeft, maxShots, p1.Lives, state.Winner == 1)
+	p2Msg := hudStatusMessage(p2.ShotsLeft, maxShots, p2.Lives, state.Winner == 2)
+	borderY := float64(HUDHeight)
+	if p1Msg != "" {
+		r.drawBorderMessage(screen, p1Msg, 1, borderY)
 	}
+	if p2Msg != "" {
+		r.drawBorderMessage(screen, p2Msg, HUDP2Start, borderY)
+	}
+}
+
+func (r *Renderer) drawHUDPanel(screen *ebiten.Image, startCol int, row0, row1 string) {
+	for i, ch := range row0 {
+		if ch == ' ' {
+			continue
+		}
+		px := float64((startCol + i) * CellSize)
+		py := float64(0)
+		glyph := r.cache.Get(ch, ColorPhosphorGreen, ColorBlack, true)
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Translate(px, py)
+		screen.DrawImage(glyph, op)
+	}
+	for i, ch := range row1 {
+		if ch == ' ' {
+			continue
+		}
+		px := float64((startCol + i) * CellSize)
+		py := float64(CellSize)
+		glyph := r.cache.Get(ch, ColorPhosphorGreen, ColorBlack, true)
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Translate(px, py)
+		screen.DrawImage(glyph, op)
+	}
+}
+
+func (r *Renderer) drawBorderMessage(screen *ebiten.Image, msg string, startCol int, y float64) {
+	panelWidth := HUDP1End - 1
+	centered := msg
+	if len(centered) < panelWidth {
+		centered = fmt.Sprintf("%*s", panelWidth, fmt.Sprintf("%-*s", panelWidth, centered))
+	} else {
+		centered = centered[:panelWidth]
+	}
+	for i, ch := range centered {
+		if ch == ' ' {
+			continue
+		}
+		px := float64((startCol + i) * CellSize)
+		glyph := r.cache.Get(ch, ColorPhosphorGreen, ColorBlack, true)
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Translate(px, y)
+		screen.DrawImage(glyph, op)
+	}
+}
+
+func mustInt(s string) int {
+	var v int
+	fmt.Sscanf(s, "%d", &v)
+	return v
 }
 
 func (r *Renderer) drawInvertedText(screen *ebiten.Image, txt string, x, y float64, face *text.GoTextFace) {

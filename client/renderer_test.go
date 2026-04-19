@@ -1,6 +1,7 @@
 package client
 
 import (
+	"fmt"
 	"image/color"
 	"testing"
 )
@@ -9,7 +10,7 @@ func TestCellGlyphsCoversAllCellTypes(t *testing.T) {
 	expectedCells := []int{
 		CellEmpty, CellWall, CellTank1, CellTank2,
 		CellBarrel1, CellBarrel2, CellShot, CellMine,
-		CellWreckageP1, CellWreckageP2,
+		CellWreckageP1, CellWreckageP2, CellBorder,
 	}
 	for _, cell := range expectedCells {
 		def, ok := cellGlyphs[cell]
@@ -180,7 +181,7 @@ func TestNewRenderer(t *testing.T) {
 }
 
 func TestCellTypeValues(t *testing.T) {
-	for i := 1; i <= 10; i++ {
+	for i := 1; i <= 11; i++ {
 		_, ok := cellGlyphs[i]
 		if !ok {
 			t.Errorf("cellGlyphs missing entry for cell type %d", i)
@@ -255,5 +256,155 @@ func TestDimensionConstants(t *testing.T) {
 	}
 	if HUDHeight != 40 {
 		t.Errorf("HUDHeight = %d, want 40", HUDHeight)
+	}
+	if HUDP1End != 19 {
+		t.Errorf("HUDP1End = %d, want 19", HUDP1End)
+	}
+	if HUDP2Start != 21 {
+		t.Errorf("HUDP2Start = %d, want 21", HUDP2Start)
+	}
+}
+
+func TestHUDLabelRow(t *testing.T) {
+	tests := []struct {
+		name    string
+		aiLevel int
+		want    string
+	}{
+		{"no AI", 0, "TANKS  SHOTS  MINES"},
+		{"AI level 1", 1, "TANKS SHOTS MINES 1"},
+		{"AI level 5", 5, "TANKS SHOTS MINES 5"},
+		{"AI level 9", 9, "TANKS SHOTS MINES 9"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := hudLabelRow(tt.aiLevel)
+			if len(got) != 19 {
+				t.Errorf("hudLabelRow(%d) length = %d, want 19 (got %q)", tt.aiLevel, len(got), got)
+			}
+			if got != tt.want {
+				t.Errorf("hudLabelRow(%d) = %q, want %q", tt.aiLevel, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHUDValueRow(t *testing.T) {
+	tests := []struct {
+		name      string
+		lives     int
+		shots     int
+		mines     int
+		wantLen   int
+		wantStart string
+	}{
+		{"standard", 3, 6, 0, 19, "  3      6      0"},
+		{"high values", 1, 10, 3, 19, "  1      10     3"},
+		{"zeros", 0, 0, 0, 19, "  0      0      0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := hudValueRow(tt.lives, tt.shots, tt.mines)
+			if len(got) != tt.wantLen {
+				t.Errorf("hudValueRow(%d,%d,%d) length = %d, want %d", tt.lives, tt.shots, tt.mines, len(got), tt.wantLen)
+			}
+		})
+	}
+}
+
+func TestHUDStatusMessage(t *testing.T) {
+	tests := []struct {
+		name      string
+		shotsLeft int
+		maxShots  int
+		lives     int
+		isWinner  bool
+		want      string
+	}{
+		{"winner", 5, 10, 3, true, "THE WINNER"},
+		{"out of shots", 0, 10, 3, false, "OUT OF SHOTS"},
+		{"low shots 20pct", 2, 10, 3, false, "LOW SHOTS"},
+		{"not low shots", 3, 10, 3, false, ""},
+		{"last tank", 5, 10, 1, false, "LAST TANK"},
+		{"normal", 5, 10, 3, false, ""},
+		{"winner overrides low shots", 0, 10, 1, true, "THE WINNER"},
+		{"out of shots overrides last tank", 0, 10, 1, false, "OUT OF SHOTS"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := hudStatusMessage(tt.shotsLeft, tt.maxShots, tt.lives, tt.isWinner)
+			if got != tt.want {
+				t.Errorf("hudStatusMessage(%d,%d,%d,%v) = %q, want %q",
+					tt.shotsLeft, tt.maxShots, tt.lives, tt.isWinner, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDifficultyToMaxShots(t *testing.T) {
+	tests := []struct {
+		level int
+		want  int
+	}{
+		{0, 6},
+		{1, 6},
+		{2, 8},
+		{4, 8},
+		{5, 10},
+		{7, 10},
+		{8, 12},
+		{9, 12},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("level_%d", tt.level), func(t *testing.T) {
+			got := difficultyToMaxShots(tt.level)
+			if got != tt.want {
+				t.Errorf("difficultyToMaxShots(%d) = %d, want %d", tt.level, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBorderDetection(t *testing.T) {
+	borderTests := []struct {
+		name string
+		x    int
+		y    int
+		want bool
+	}{
+		{"top-left corner", 0, 0, true},
+		{"top-right corner", BoardCols - 1, 0, true},
+		{"bottom-left corner", 0, BoardRows - 1, true},
+		{"bottom-right corner", BoardCols - 1, BoardRows - 1, true},
+		{"top edge middle", 20, 0, true},
+		{"bottom edge middle", 20, BoardRows - 1, true},
+		{"left edge middle", 0, 10, true},
+		{"right edge middle", BoardCols - 1, 10, true},
+		{"interior", 5, 5, false},
+		{"interior near edge", 1, 1, false},
+	}
+	for _, tt := range borderTests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.x == 0 || tt.x == BoardCols-1 || tt.y == 0 || tt.y == BoardRows-1
+			if got != tt.want {
+				t.Errorf("border(%d,%d) = %v, want %v", tt.x, tt.y, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCellBorderGlyph(t *testing.T) {
+	def, ok := cellGlyphs[CellBorder]
+	if !ok {
+		t.Fatalf("cellGlyphs missing CellBorder entry")
+	}
+	if def.Rune != '●' {
+		t.Errorf("CellBorder.Rune = %q, want '●'", def.Rune)
+	}
+	if !def.Inverted {
+		t.Error("CellBorder.Inverted = false, want true")
+	}
+	if def.FgColor != ColorPhosphorGreen {
+		t.Errorf("CellBorder.FgColor = %v, want ColorPhosphorGreen", def.FgColor)
 	}
 }

@@ -1,5 +1,52 @@
 ## Changelog
 
+### 0.9.10 - 2026-04-18 — PET-authentic HUD and border rendering
+
+**Visual fidelity fix.** Replaces the single-line text HUD and checkerboard border with PET-authentic two-row header and bubble border matching original PET screenshots.
+
+**HUD (`client/renderer.go`)**:
+
+- Two-row layout: label row ("TANKS  SHOTS  MINES") over value row (numeric stats), matching the original PET header
+- 2-column inverted circle separator between P1/P2 panels (cols 19–20)
+- Inverted text rendering (black glyphs on green bar) via glyph cache, aligned to cell grid
+- Per-player status messages ("LOW SHOTS", "OUT OF SHOTS", "LAST TANK", "THE WINNER") rendered in the playfield border row, not in the HUD area
+- Priority system: THE WINNER > OUT OF SHOTS > LOW SHOTS > LAST TANK
+
+**Border (`client/renderer.go`)**:
+
+- Playfield perimeter now renders as inverted circle glyphs (`●` with `Inverted: true`) — green cell with black circle cutout, creating the "bubble" border seen on original PET
+- Interior walls remain checkerboard (`▚`, non-inverted) — unchanged
+- Position-based detection: `x==0 || x==39 || y==0 || y==20` (no protocol change)
+
+**Glyph cache (`client/glyph.go`)**:
+
+- Added `CellBorder = 11` (rendering-only constant, not a protocol cell type)
+- Added `CellBorder` glyph definition: `{Rune: '●', Inverted: true}` for bubble border
+- Added `HUDP1End = 19`, `HUDP2Start = 21` layout constants
+- Added `cellFace` (20px) to `Renderer` for grid-aligned HUD text
+- Expanded `hudChars` pre-warming for full label character set
+
+**Helpers (`client/renderer.go`)**:
+
+- `difficultyToMaxShots()`: mirrors engine `DifficultyToResources` shot table per difficulty level
+- `hudLabelRow()`: formats "TANKS  SHOTS  MINES" (or AI variant) padded to 19 chars
+- `hudValueRow()`: formats numeric values aligned under labels
+- `hudStatusMessage()`: returns priority-ordered status string
+- `drawHUDPanel()`: renders inverted text character-by-character at cell boundaries
+- `drawBorderMessage()`: renders status messages in the border row centered per panel
+
+**Tests (`client/renderer_test.go`)**:
+
+- `TestHUDLabelRow`: 4 cases (no AI, AI levels 1/5/9)
+- `TestHUDValueRow`: 3 cases (standard, high values, zeros)
+- `TestHUDStatusMessage`: 8 cases covering all priority branches
+- `TestDifficultyToMaxShots`: 8 cases mirroring engine test
+- `TestBorderDetection`: 10 cases for corner/edge/interior positions
+- `TestCellBorderGlyph`: verifies CellBorder glyph definition
+- Updated `TestCellGlyphsCoversAllCellTypes` and `TestCellTypeValues` for CellBorder
+
+**Bumped:** `AppVersion = "0.9.10"`. Protocol unchanged.
+
 ### 0.9.9 - 2026-04-18 — Phase 6 G-3: Bot-vs-bot load harness + Phase 6 close
 
 **Closes Phase 6 gap G-3.** Adds `cmd/bot-load`, a subprocess-based load harness that drives 100+ real bot-vs-bot matches over the network against a live `tank-server`, validates per-match outcomes, and verifies the server has no goroutine leaks across the tournament. Implementation follows the Oracle-confirmed full design (subprocess + real network) with random independent skill levels per bot tracked as a 10×10 skill-vs-skill matrix.

@@ -4,7 +4,7 @@ Faithful recreation of the Commodore PET TANK! game with networked multiplayer v
 
 ## Version
 
-Current: **0.9.9** (Phase 6 G-3: bot-vs-bot load harness `cmd/bot-load` — 100-match tournament with 10×10 skill matrix, real-network subprocess bots, server goroutine-leak verification via pprof; Phase 6 closed at `v1.0.0-phase6`)
+Current: **0.9.10** (PET-authentic HUD and border: two-row header with TANKS/SHOTS/MINES labels, circle separator, bubble border perimeter, per-player status messages in border row)
 
 ## Quick Start
 

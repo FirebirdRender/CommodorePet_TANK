@@ -16,12 +16,13 @@ var (
 	ColorBlack         = color.RGBA{0, 0, 0, 255}
 )
 
-const CellSize = 20
-
 const (
-	BoardCols = 40
-	BoardRows = 21
-	HUDHeight = 40
+	CellSize   = 20
+	BoardCols  = 40
+	BoardRows  = 21
+	HUDHeight  = 40
+	HUDP1End   = 19
+	HUDP2Start = 21
 )
 
 const (
@@ -35,6 +36,7 @@ const (
 	CellMine       = 8
 	CellWreckageP1 = 9
 	CellWreckageP2 = 10
+	CellBorder     = 11 // rendering-only: perimeter border cells (not a protocol type)
 )
 
 const (
@@ -65,6 +67,7 @@ var cellGlyphs = map[int]GlyphDef{
 	CellMine:       {Rune: '●', Inverted: true, FgColor: ColorPhosphorGreen},
 	CellWreckageP1: {Rune: '✕', Inverted: true, FgColor: ColorPhosphorGreen},
 	CellWreckageP2: {Rune: '✕', Inverted: true, FgColor: ColorPhosphorGreen},
+	CellBorder:     {Rune: '●', Inverted: true, FgColor: ColorPhosphorGreen},
 }
 
 var barrelDirGlyphs = map[int]rune{
@@ -111,7 +114,7 @@ func NewGlyphCache() (*GlyphCache, error) {
 	for _, r := range barrelDirGlyphs {
 		gc.Get(r, ColorPhosphorGreen, ColorBlack, false)
 	}
-	hudChars := "TANKSSHOMINETUVFLWRYDPB1234567890 ●"
+	hudChars := "TANKSSHOMINETUVFLWRYDPB: 1234567890●"
 	for _, r := range hudChars {
 		gc.Get(r, ColorPhosphorGreen, ColorBlack, true)
 	}
