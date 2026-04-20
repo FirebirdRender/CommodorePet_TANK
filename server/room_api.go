@@ -240,9 +240,27 @@ func (api *RoomAPI) handleJoinRoom(w http.ResponseWriter, r *http.Request, code 
 func (api *RoomAPI) handleRoomStatus(w http.ResponseWriter, r *http.Request, code string) {
 	room := api.hub.GetRoom(code)
 
-	// S7: Return generic error for missing and non-joinable rooms
-	if room == nil || room.IsFull() || room.GetState() == RoomPlaying || room.GetState() == RoomGameOver || room.GetState() == RoomClosed {
+	// S7: For unauthenticated requests, return generic 404 for non-joinable rooms.
+	// Authenticated requests (with a valid token) can see full/playing rooms.
+	token := r.URL.Query().Get("token")
+	if token == "" {
+		token = r.Header.Get("X-Auth-Token")
+	}
+	hasValidToken := false
+	if token != "" {
+		entry, valid := api.tokens.ValidateToken(token)
+		if valid && entry.RoomCode == code {
+			hasValidToken = true
+		}
+	}
+
+	if !hasValidToken && (room == nil || room.IsFull() || room.GetState() == RoomPlaying || room.GetState() == RoomGameOver || room.GetState() == RoomClosed) {
 		http.Error(w, "Invalid room code", http.StatusNotFound)
+		return
+	}
+
+	if room == nil {
+		http.Error(w, "Room not found", http.StatusNotFound)
 		return
 	}
 

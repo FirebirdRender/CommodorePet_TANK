@@ -40,6 +40,13 @@ function setupEventListeners() {
     document.getElementById('join-code').addEventListener('input', (e) => {
         e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
     });
+
+    document.getElementById('btn-back-lobby').addEventListener('click', showLobby);
+    document.getElementById('btn-leave-spectate').addEventListener('click', () => {
+        cleanupGlobalSSE();
+        showLobby();
+    });
+    document.getElementById('btn-spectate')?.addEventListener('click', showMatchList);
 }
 
 function handleDeepLink() {
@@ -123,7 +130,7 @@ async function joinRoom() {
 function startEventStream() {
     if (eventSource) eventSource.close();
     
-    eventSource = new EventSource(`/api/room/${roomCode}/events`);
+    eventSource = new EventSource(`/api/room/${roomCode}/events?token=${encodeURIComponent(token)}`);
     
     eventSource.addEventListener('player_joined', (e) => {
         const data = JSON.parse(e.data);
@@ -168,7 +175,7 @@ function startPolling() {
     if (pollInterval) return;
     pollInterval = setInterval(async () => {
         try {
-            const res = await fetch(`/api/room/${roomCode}/status`);
+            const res = await fetch(`/api/room/${roomCode}/status?token=${encodeURIComponent(token)}`);
             if (!res.ok) {
                 showError('Room not found');
                 cleanup();
@@ -276,4 +283,123 @@ function showError(msg) {
 
 function hideAllScreens() {
     document.querySelectorAll('.screen').forEach(el => el.classList.add('hidden'));
+}
+
+let globalEventSource = null;
+let reconnectTimeouts = {};
+
+function cleanupGlobalSSE() {
+    if (globalEventSource) {
+        globalEventSource.close();
+        globalEventSource = null;
+    }
+    reconnectTimeouts = {};
+}
+
+function showMatchList() {
+    hideAllScreens();
+    document.getElementById('screen-matchlist').classList.remove('hidden');
+    fetchPlayingRooms();
+    startGlobalEventSource();
+}
+
+async function fetchPlayingRooms() {
+    try {
+        const res = await fetch('/api/rooms?filter=playing');
+        if (!res.ok) return;
+        const rooms = await res.json();
+        renderMatchList(rooms);
+    } catch (e) { }
+}
+
+function renderMatchList(rooms) {
+    const container = document.getElementById('match-list-container');
+    container.innerHTML = '';
+
+    if (rooms.length === 0) {
+        container.innerHTML = '<div class="status-text">NO ACTIVE MATCHES</div>';
+        return;
+    }
+
+    rooms.forEach(room => {
+        const card = document.createElement('div');
+        card.className = 'match-card';
+
+        const players = room.players || [];
+        const p1 = players[0] || { name: '???' };
+        const p2 = players[1] || { name: '???' };
+
+        card.innerHTML =
+            '<div class="match-info">' +
+                '<div class="match-code">' + room.code + '</div>' +
+                '<div class="match-diff">DIFF: ' + room.difficulty + '</div>' +
+            '</div>' +
+            '<div class="match-players">' +
+                '<div>' + p1.name + '</div>' +
+                '<div class="match-vs">VS</div>' +
+                '<div>' + p2.name + '</div>' +
+            '</div>' +
+            '<button class="btn spectate-btn" data-code="' + room.code + '">WATCH</button>';
+
+        if (room.state === 'waiting_reconnect') {
+            const badge = document.createElement('div');
+            badge.className = 'reconnect-badge';
+            badge.textContent = 'RECONNECT';
+            card.appendChild(badge);
+        }
+
+        container.appendChild(card);
+    });
+
+    container.querySelectorAll('.spectate-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const code = btn.getAttribute('data-code');
+            window.location.href = '/spectate/' + code;
+        });
+    });
+}
+
+function startGlobalEventSource() {
+    if (globalEventSource) globalEventSource.close();
+
+    globalEventSource = new EventSource('/api/events');
+
+    globalEventSource.addEventListener('match_available', () => {
+        fetchPlayingRooms();
+    });
+
+    globalEventSource.addEventListener('match_started', (e) => {
+        const data = JSON.parse(e.data);
+        reconnectTimeouts[data.room_code] = setTimeout(() => {
+            delete reconnectTimeouts[data.room_code];
+        }, 30000);
+        fetchPlayingRooms();
+    });
+
+    globalEventSource.addEventListener('match_ended', (e) => {
+        const data = JSON.parse(e.data);
+        clearTimeout(reconnectTimeouts[data.room_code]);
+        delete reconnectTimeouts[data.room_code];
+        fetchPlayingRooms();
+    });
+
+    globalEventSource.addEventListener('player_reconnected', (e) => {
+        const data = JSON.parse(e.data);
+        clearTimeout(reconnectTimeouts[data.room_code]);
+        delete reconnectTimeouts[data.room_code];
+        fetchPlayingRooms();
+    });
+
+    globalEventSource.addEventListener('player_disconnected', (e) => {
+        const data = JSON.parse(e.data);
+        reconnectTimeouts[data.room_code] = setTimeout(() => {
+            delete reconnectTimeouts[data.room_code];
+        }, 30000);
+        fetchPlayingRooms();
+    });
+
+    globalEventSource.onerror = () => {
+        globalEventSource.close();
+        globalEventSource = null;
+    };
 }

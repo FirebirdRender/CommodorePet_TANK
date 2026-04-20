@@ -184,13 +184,23 @@ func TestRoomAPI_GetRoomStatus(t *testing.T) {
 		room.AddPlayer("Bob")
 		room.SetState(RoomPlaying)
 
-		// S7: Playing rooms return 404 to prevent enumeration
+		// S7: Without token, playing rooms return 404 (enumeration protection)
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodGet, "/api/room/"+code+"/status", nil)
 		api.handleRoomRoutes(w, r)
 
 		if w.Code != http.StatusNotFound {
-			t.Errorf("expected 404 for playing room (enumeration protection), got %d", w.Code)
+			t.Errorf("expected 404 without token (enumeration protection), got %d", w.Code)
+		}
+
+		// S7: With valid token, playing rooms return 200
+		tok := ts.GenerateToken(code, 1, "Alice")
+		w2 := httptest.NewRecorder()
+		r2 := httptest.NewRequest(http.MethodGet, "/api/room/"+code+"/status?token="+tok, nil)
+		api.handleRoomRoutes(w2, r2)
+
+		if w2.Code != http.StatusOK {
+			t.Errorf("expected 200 with valid token for playing room, got %d: %s", w2.Code, w2.Body.String())
 		}
 	})
 

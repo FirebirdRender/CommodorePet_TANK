@@ -1,5 +1,17 @@
 ## Changelog
 
+### 1.4.1 - 2026-04-20 — Fix VS AI room status regression from S7
+
+S7's room status enumeration protection was too aggressive — it blocked
+authenticated lobby polls for full/playing rooms, breaking VS AI mode
+where the bot joins immediately and the room becomes "full".
+
+Fix: `handleRoomStatus` now accepts `?token=` or `X-Auth-Token` header.
+Unauthenticated requests still get generic 404 for non-joinable rooms.
+Authenticated requests see full room status (needed for lobby poll → game redirect).
+
+Also updated `web/app.js` to send token on SSE and status poll requests.
+
 ### 1.4.0 - 2026-04-20 — Security hardening Phase 4 (AF1, AF2, AF3, AF4)
 
 Phase 4 — Additional findings from security audit:
