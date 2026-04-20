@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -101,7 +102,8 @@ func (bm *BotManager) AssignBotToRoomAt(roomCode string, slot int, botClass stri
 		botName = fmt.Sprintf("CPU%d-%s", slot+1, botClass)
 	}
 
-	playerID, err := room.AddBotPlayerAt(slot, botName, botID, botClass)
+	skill := rand.IntN(10)
+	playerID, err := room.AddBotPlayerAt(slot, botName, botID, botClass, skill)
 	if err != nil {
 		room.CancelBotReservationAt(slot)
 		return fmt.Errorf("add bot player: %w", err)

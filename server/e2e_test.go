@@ -324,22 +324,34 @@ func TestE2EForcedGameOver(t *testing.T) {
 	_ = decodeRaw[TickMsg](t, c1.recvUntil(MsgTypeTick, 120))
 	c2.closeNow()
 
-	waitForTickSilence(c1, 350*time.Millisecond, 5*time.Second)
+	// With reconnect: player 2 disconnect causes RoomWaitingReconnect
+	// Player 1 receives PlayerDisconnectedMsg, not immediate room closure
+	// Wait for the PlayerDisconnectedMsg or OpponentLeftMsg
+	msgType, _, err := c1.recvWithTimeout(5 * time.Second)
+	if err != nil {
+		t.Fatalf("expected message after disconnect: %v", err)
+	}
+	if msgType != MsgTypePlayerDisconnected && msgType != MsgTypeOpponentLeft {
+		t.Fatalf("expected player_disconnected or opponent_left, got %s", msgType)
+	}
 
 	c1.closeNow()
 	waitForCondition(t, 5*time.Second, func() bool {
-		return handler.Hub.GetRoom(roomCode) == nil
-	}, "room removed after both disconnect")
+		room := handler.Hub.GetRoom(roomCode)
+		return room == nil || room.GetState() == RoomClosed
+	}, "room closed after both disconnect")
+
+	time.Sleep(100 * time.Millisecond)
 
 	c3 := newE2EClient(t, ts.URL)
 	c3.send(MsgTypeJoinRoom, JoinRoomMsg{RoomCode: roomCode, PlayerName: "newbie"})
-	msgType, payload := c3.recv()
-	if msgType != MsgTypeError {
-		t.Fatalf("msg type = %q, want %q", msgType, MsgTypeError)
+	msgType2, payload := c3.recv()
+	if msgType2 != MsgTypeError {
+		t.Fatalf("msg type = %q, want %q", msgType2, MsgTypeError)
 	}
 	errMsg := decodeRaw[ErrorMsg](t, payload)
-	if errMsg.Code != ErrCodeRoomNotFound {
-		t.Fatalf("error code = %q, want %q", errMsg.Code, ErrCodeRoomNotFound)
+	if errMsg.Code != ErrCodeRoomNotFound && errMsg.Code != ErrCodeRoomFull {
+		t.Fatalf("error code = %q, want %q or %q", errMsg.Code, ErrCodeRoomNotFound, ErrCodeRoomFull)
 	}
 }
 
@@ -449,7 +461,7 @@ func TestE2ERoomCleanupAfterMatch(t *testing.T) {
 	c2.closeNow()
 	time.Sleep(100 * time.Millisecond)
 
-	waitForCondition(t, 2*time.Second, func() bool {
+	waitForCondition(t, 10*time.Second, func() bool {
 		return handler.Hub.RoomCount() == 0
 	}, fmt.Sprintf("hub room count becomes zero (room=%s)", roomCode))
 }

@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TANK! - Spectator</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { width:100%; height:100%; overflow:hidden; background:#000; display:flex; align-items:center; justify-content:center; font-family: monospace; color:#33FF33; }
+#wrapper { position: relative; }
+canvas { display:block; image-rendering: pixelated; }
+</style>
+</head>
+<body>
+<div id="wrapper"><canvas id="c" width="800" height="480"></canvas></div>
+<script>
+// --- Constants ---
+const CELL_SIZE = 20;
+const HUD_HEIGHT = 40;
+const BOARD_COLS = 40;
+const BOARD_ROWS = 21;
+const PHOSPHOR_GREEN = '#33FF33';
+const CHAIN_GREEN = '#50FF50';
+const BLACK = '#000000';
+
+const CELL_TYPES = {
+    EMPTY: 1, WALL: 2, TANK1: 3, TANK2: 4, BARREL1: 5, BARREL2: 6,
+    SHOT: 7, MINE: 8, WRECKAGE1: 9, WRECKAGE2: 10, BORDER: 11
+};
+
+const CELL_GLYPHS = {
+    [CELL_TYPES.EMPTY]: { chars: [' '], inverted: false },
+    [CELL_TYPES.WALL]: { chars: ['▚'], inverted: false },
+    [CELL_TYPES.TANK1]: { chars: ['*'], inverted: true },
+    [CELL_TYPES.TANK2]: { chars: ['#'], inverted: true },
+    [CELL_TYPES.BARREL1]: { chars: ['─'], inverted: false },
+    [CELL_TYPES.BARREL2]: { chars: ['─'], inverted: false },
+    [CELL_TYPES.SHOT]: { chars: ['.'], inverted: false },
+    [CELL_TYPES.MINE]: { chars: ['●'], inverted: true },
+    [CELL_TYPES.WRECKAGE1]: { chars: ['✕'], inverted: true },
+    [CELL_TYPES.WRECKAGE2]: { chars: ['✕'], inverted: true },
+    [CELL_TYPES.BORDER]: { chars: ['●'], inverted: true }
+};
+
+const DIR_GLYPHS = {
+    1: '│', 2: '│', 3: '─', 4: '─',
+    5: '╲', 6: '╱', 7: '╱', 8: '╲'
+};
+
+// --- Scaling (90% viewport, match WASM game.html layout) ---
+function resizeCanvas() {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const scaleW = (vw * 0.9) / 800;
+    const scaleH = (vh * 0.9) / 480;
+    const scale = Math.min(scaleW, scaleH); // fills 90% of viewport, no cap
+    const wrapper = document.getElementById('wrapper');
+    const cw = Math.round(800 * scale);
+    const ch = Math.round(480 * scale);
+    wrapper.style.width = cw + 'px';
+    wrapper.style.height = ch + 'px';
+    canvas.style.width = cw + 'px';
+    canvas.style.height = ch + 'px';
+}
+window.addEventListener('resize', resizeCanvas);
+
+// --- State ---
+let canvas, ctx;
+let state = {
+    phase: 'connecting',
+    grid: [],
+    tanks: [{}, {}],
+    shots: [],
+    mines: [],
+    explosions: [],
+    barrelWreckage: [],
+    barrelHitBodies: [],
+    difficulty: 0,
+    winner: 0,
+    player1_skill: 0,
+    player2_skill: 0,
+    prevExplosionSet: new Set()
+};
+
+// --- Audio ---
+const AUDIO_VOLUME = 0.7;
+const sounds = {
+    explosion: new Audio('/sounds/explosion.wav'),
+    roundOver: new Audio('/sounds/round_over.wav'),
+    gameOver: new Audio('/sounds/game_over.wav')
+};
+['explosion', 'roundOver', 'gameOver'].forEach(k => { sounds[k].volume = AUDIO_VOLUME; });
+
+function playSound(name) {
+    if (sounds[name]) {
+        sounds[name].currentTime = 0;
+        sounds[name].play().catch(() => {});
+    }
+}
+
+// --- Glyph Cache ---
+const glyphCache = new Map();
+
+function getGlyph(rune, fg, bg, inverted) {
+    const key = `${rune}_${inverted}_${fg}_${bg}`;
+    if (glyphCache.has(key)) return glyphCache.get(key);
+    
+    const off = document.createElement('canvas');
+    off.width = CELL_SIZE;
+    off.height = CELL_SIZE;
+    const octx = off.getContext('2d');
+    
+    octx.fillStyle = inverted ? fg : bg;
+    octx.fillRect(0, 0, CELL_SIZE, CELL_SIZE);
+    octx.fillStyle = inverted ? bg : fg;
+    octx.font = '20px PetMe64, monospace';
+    octx.textAlign = 'center';
+    octx.textBaseline = 'middle';
+    octx.fillText(rune, CELL_SIZE / 2, CELL_SIZE / 2 + 1);
+    
+    glyphCache.set(key, off);
+    return off;
+}
+
+function buildGlyphCache() {
+    for (const [type, cfg] of Object.entries(CELL_GLYPHS)) {
+        for (const char of cfg.chars) {
+            getGlyph(char, PHOSPHOR_GREEN, BLACK, cfg.inverted);
+        }
+    }
+    for (const dir of Object.values(DIR_GLYPHS)) {
+        getGlyph(dir, PHOSPHOR_GREEN, BLACK, false);
+    }
+    const hudChars = 'TANKSSHOMINETUVFLWRYDPB: 1234567890●';
+    for (const char of hudChars) {
+        getGlyph(char, PHOSPHOR_GREEN, BLACK, true);
+    }
+}
+
+// --- WebSocket ---
+let ws;
+
+function connectWebSocket() {
+    if (ws) ws.close();
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${protocol}//${location.host}/ws`);
+    
+    ws.onopen = () => {
+        const roomCode = location.pathname.split('/')[2];
+        ws.send(JSON.stringify({type: 'spectate', payload: {room_code: roomCode}}));
+    };
+    
+    ws.onmessage = (e) => {
+        try {
+            const msg = JSON.parse(e.data);
+            switch (msg.type) {
+                case 'spectator_joined': break;
+                case 'game_start': onGameStart(msg.payload); break;
+                case 'tick': onTick(msg.payload); break;
+                case 'tick_delta': onTickDelta(msg.payload); break;
+                case 'round_over': onRoundOver(msg.payload); break;
+                case 'game_over': onGameOver(msg.payload); break;
+                case 'error': break;
+            }
+        } catch (err) {
+            console.error('Message error:', err);
+        }
+    };
+    
+    ws.onclose = () => { state.phase = 'disconnected'; };
+    ws.onerror = (e) => { console.error('WS error:', e); };
+}
+
+function onGameStart(payload) {
+    state.grid = payload.grid;
+    state.tanks[0] = payload.tanks[0];
+    state.tanks[1] = payload.tanks[1];
+    state.difficulty = payload.difficulty;
+    state.phase = 'playing';
+}
+
+function onTick(payload) {
+    state.grid = payload.grid;
+    state.tanks = payload.tanks;
+    state.shots = payload.shots || [];
+    state.mines = payload.mines || [];
+    state.explosions = payload.explosions || [];
+    state.barrelWreckage = payload.barrel_wreckage || [];
+    state.barrelHitBodies = payload.barrel_hit_bodies || [];
+    state.player1_skill = payload.player1_skill || 0;
+    state.player2_skill = payload.player2_skill || 0;
+    state.prevExplosionSet.clear();
+    for (const exp of state.explosions) {
+        state.prevExplosionSet.add(`${exp.x},${exp.y}`);
+    }
+}
+
+function onTickDelta(payload) {
+    if (payload.changed_cells) {
+        for (const cell of payload.changed_cells) {
+            state.grid[cell.y][cell.x] = cell.cell;
+        }
+    }
+    if (payload.tanks) state.tanks = payload.tanks;
+    if (payload.shots) state.shots = payload.shots;
+    if (payload.mines) state.mines = payload.mines;
+    if (payload.explosions) {
+        const newExpSet = new Set();
+        for (const exp of payload.explosions) {
+            const key = `${exp.x},${exp.y}`;
+            newExpSet.add(key);
+            if (!state.prevExplosionSet.has(key)) playSound('explosion');
+        }
+        state.explosions = payload.explosions;
+        state.prevExplosionSet = newExpSet;
+    }
+    if (payload.barrel_wreckage) state.barrelWreckage = payload.barrel_wreckage;
+    if (payload.barrel_hit_bodies) state.barrelHitBodies = payload.barrel_hit_bodies;
+}
+
+function onRoundOver(payload) {
+    state.phase = 'round_over';
+    state.winner = payload.winner;
+    playSound('roundOver');
+}
+
+function onGameOver(payload) {
+    state.phase = 'game_over';
+    state.winner = payload.winner;
+    state.tanks = payload.tanks || state.tanks;
+    playSound('gameOver');
+    setTimeout(() => { window.location.href = '/'; }, 5000);
+}
+
+function getCellGlyph(cellType, bx, by) {
+    if (cellType === CELL_TYPES.WALL || cellType === CELL_TYPES.BORDER) {
+        if (bx === 0 || bx === BOARD_COLS - 1 || by === 0 || by === BOARD_ROWS - 1) {
+            return { char: '●', inverted: true, x: bx * CELL_SIZE, y: (by * CELL_SIZE) + HUD_HEIGHT };
+        }
+        const wc = state.barrelWreckage.find(w => w.x === bx && w.y === by);
+        if (wc) {
+            if (wc.dir === 3 || wc.dir === 7) return { char: '/', inverted: true, x: bx * CELL_SIZE, y: (by * CELL_SIZE) + HUD_HEIGHT };
+            if (wc.dir === 4 || wc.dir === 8) return { char: '\\', inverted: true, x: bx * CELL_SIZE, y: (by * CELL_SIZE) + HUD_HEIGHT };
+            return { char: '▗', inverted: false, x: bx * CELL_SIZE, y: (by * CELL_SIZE) + HUD_HEIGHT };
+        }
+        if (state.barrelHitBodies.some(b => b[0] === bx && b[1] === by)) {
+            return { char: '✕', inverted: true, x: bx * CELL_SIZE, y: (by * CELL_SIZE) + HUD_HEIGHT };
+        }
+    }
+    const cfg = CELL_GLYPHS[cellType];
+    if (cfg) {
+        const char = cfg.chars[0];
+        if (cellType === CELL_TYPES.BARREL1 || cellType === CELL_TYPES.BARREL2) {
+            const tank = cellType === CELL_TYPES.BARREL1 ? state.tanks[0] : state.tanks[1];
+            if (tank.x !== undefined && tank.y !== undefined) {
+                const dir = DIR_GLYPHS[tank.dir];
+                if (dir) return { char: dir, inverted: false, x: bx * CELL_SIZE, y: (by * CELL_SIZE) + HUD_HEIGHT };
+            }
+        }
+        return { char, inverted: cfg.inverted, x: bx * CELL_SIZE, y: (by * CELL_SIZE) + HUD_HEIGHT };
+    }
+    return { char: ' ', inverted: false, x: bx * CELL_SIZE, y: (by * CELL_SIZE) + HUD_HEIGHT };
+}
+
+function drawGrid() {
+    for (let y = 0; y < BOARD_ROWS; y++) {
+        for (let x = 0; x < BOARD_COLS; x++) {
+            const cellType = state.grid[y]?.[x] || CELL_TYPES.EMPTY;
+            const glyph = getCellGlyph(cellType, x, y);
+            const off = getGlyph(glyph.char, PHOSPHOR_GREEN, BLACK, glyph.inverted);
+            ctx.drawImage(off, glyph.x, glyph.y);
+        }
+    }
+}
+
+function drawTanks() {
+    for (let i = 0; i < 2; i++) {
+        const tank = state.tanks[i];
+        if (tank && tank.active) {
+            const x = tank.x * CELL_SIZE;
+            const y = tank.y * CELL_SIZE + HUD_HEIGHT;
+            const cfg = CELL_GLYPHS[i === 0 ? CELL_TYPES.TANK1 : CELL_TYPES.TANK2];
+            const off = getGlyph(cfg.chars[0], PHOSPHOR_GREEN, BLACK, cfg.inverted);
+            ctx.drawImage(off, x, y);
+            
+            let bxOff = 0, byOff = 0;
+            if (tank.dir === 1) byOff = -1;
+            else if (tank.dir === 2) byOff = 1;
+            else if (tank.dir === 3) bxOff = -1;
+            else if (tank.dir === 4) bxOff = 1;
+            else if (tank.dir === 5) { bxOff = -1; byOff = -1; }
+            else if (tank.dir === 6) { bxOff = 1; byOff = -1; }
+            else if (tank.dir === 7) { bxOff = -1; byOff = 1; }
+            else if (tank.dir === 8) { bxOff = 1; byOff = 1; }
+            
+            const dirChar = DIR_GLYPHS[tank.dir] || '─';
+            const bOff = getGlyph(dirChar, PHOSPHOR_GREEN, BLACK, false);
+            ctx.drawImage(bOff, (tank.x + bxOff) * CELL_SIZE, (tank.y + byOff) * CELL_SIZE + HUD_HEIGHT);
+        }
+    }
+}
+
+function drawMines() {
+    for (const mine of state.mines) {
+        if (mine.visible) {
+            const off = getGlyph('●', PHOSPHOR_GREEN, BLACK, true);
+            ctx.drawImage(off, mine.x * CELL_SIZE, mine.y * CELL_SIZE + HUD_HEIGHT);
+        }
+    }
+}
+
+function drawShots() {
+    for (const shot of state.shots) {
+        if (shot.active) {
+            const off = getGlyph('.', PHOSPHOR_GREEN, BLACK, false);
+            ctx.drawImage(off, shot.x * CELL_SIZE, shot.y * CELL_SIZE + HUD_HEIGHT);
+        }
+    }
+}
+
+function drawExplosions() {
+    for (const exp of state.explosions) {
+        const isChain = exp.is_chain_reaction;
+        const off = getGlyph('●', isChain ? CHAIN_GREEN : PHOSPHOR_GREEN, BLACK, true);
+        ctx.drawImage(off, exp.x * CELL_SIZE, exp.y * CELL_SIZE + HUD_HEIGHT);
+    }
+}
+
+// Mirror client/renderer.go HUD layout exactly.
+const HUD_P1_END = 19;
+const HUD_P2_START = 21;
+
+function padRight(s, n) {
+    if (s.length >= n) return s.slice(0, n);
+    return s + ' '.repeat(n - s.length);
+}
+
+function difficultyToMaxShots(level) {
+    if (level <= 1) return 6;
+    if (level <= 4) return 8;
+    if (level <= 7) return 10;
+    return 12;
+}
+
+function hudLabelRow(aiLevel) {
+    if (aiLevel > 0) {
+        let s = `TANKS SHOTS MINES ${aiLevel}`;
+        if (s.length > 19) s = s.slice(0, 19);
+        return padRight(s, 19);
+    }
+    return 'TANKS  SHOTS  MINES'.slice(0, 19);
+}
+
+function hudValueRow(lives, shots, mines) {
+    let s = `  ${lives}      ${shots}      ${mines}`;
+    if (s.length > 19) s = s.slice(0, 19);
+    return padRight(s, 19);
+}
+
+function hudStatusMessage(shotsLeft, maxShots, lives, isWinner) {
+    if (isWinner) return 'THE WINNER';
+    if (shotsLeft === 0 && maxShots > 0) return 'OUT OF SHOTS';
+    if (maxShots > 0 && shotsLeft <= Math.floor(maxShots / 5)) return 'LOW SHOTS';
+    if (lives === 1) return 'LAST TANK';
+    return '';
+}
+
+function drawHUD() {
+    // 1. Fill entire HUD bar with phosphor green
+    ctx.fillStyle = PHOSPHOR_GREEN;
+    ctx.fillRect(0, 0, BOARD_COLS * CELL_SIZE, HUD_HEIGHT);
+
+    // 2. Center separator: 2 cols x 2 rows
+    // Left cell (col 19, row 0): P1 bot skill digit (0-9)
+    // Right cell (col 20, row 0): P2 bot skill digit (0-9)
+    // Remaining cells: filled with inverted '●'
+    const p1Skill = state.player1_skill | 0;
+    const p2Skill = state.player2_skill | 0;
+    const sep = getGlyph('●', PHOSPHOR_GREEN, BLACK, true);
+    for (let row = 0; row < 2; row++) {
+        for (let col = HUD_P1_END; col < HUD_P2_START; col++) {
+            let ch = '●';
+            let inverted = true;
+            if (col === 19 && row === 0 && p1Skill > 0) {
+                ch = String(p1Skill);
+                inverted = false; // non-inverted digit in separator = player 1 skill
+            } else if (col === 20 && row === 0 && p2Skill > 0) {
+                ch = String(p2Skill);
+                inverted = false; // non-inverted digit in separator = player 2 skill
+            }
+            const g = getGlyph(ch, PHOSPHOR_GREEN, BLACK, inverted);
+            ctx.drawImage(g, col * CELL_SIZE, row * CELL_SIZE);
+        }
+    }
+
+    // 3. Player panels (inverted: black glyphs on green background)
+    const p1 = state.tanks && state.tanks[0] ? state.tanks[0] : { lives: 0, shots_left: 0, mines_left: 0, active: false };
+    const p2 = state.tanks && state.tanks[1] ? state.tanks[1] : { lives: 0, shots_left: 0, mines_left: 0, active: false };
+
+    // In VS AI, both players see the AI difficulty label on P2 panel only
+    const ai1 = 0;
+    const ai2 = state.difficulty > 0 ? state.difficulty : 0;
+
+    const p1Row0 = hudLabelRow(ai1);
+    const p1Row1 = hudValueRow(p1.lives | 0, p1.shots_left | 0, p1.mines_left | 0);
+    const p2Row0 = hudLabelRow(ai2);
+    const p2Row1 = hudValueRow(p2.lives | 0, p2.shots_left | 0, p2.mines_left | 0);
+
+    drawHUDPanel(0, p1Row0, p1Row1);
+    drawHUDPanel(HUD_P2_START, p2Row0, p2Row1);
+
+    // 4. Per-player status messages in the top border row of the playfield
+    const maxShots = difficultyToMaxShots(state.difficulty | 0);
+    const winner = state.winner | 0;
+    const p1Msg = hudStatusMessage(p1.shots_left | 0, maxShots, p1.lives | 0, winner === 1);
+    const p2Msg = hudStatusMessage(p2.shots_left | 0, maxShots, p2.lives | 0, winner === 2);
+    if (p1Msg) drawBorderMessage(p1Msg, 1, HUD_HEIGHT);
+    if (p2Msg) drawBorderMessage(p2Msg, HUD_P2_START, HUD_HEIGHT);
+}
+
+function drawHUDPanel(startCol, row0, row1) {
+    for (let i = 0; i < row0.length; i++) {
+        const ch = row0[i];
+        if (ch === ' ') continue;
+        const g = getGlyph(ch, PHOSPHOR_GREEN, BLACK, true);
+        ctx.drawImage(g, (startCol + i) * CELL_SIZE, 0);
+    }
+    for (let i = 0; i < row1.length; i++) {
+        const ch = row1[i];
+        if (ch === ' ') continue;
+        const g = getGlyph(ch, PHOSPHOR_GREEN, BLACK, true);
+        ctx.drawImage(g, (startCol + i) * CELL_SIZE, CELL_SIZE);
+    }
+}
+
+function drawBorderMessage(msg, startCol, y) {
+    const panelWidth = HUD_P1_END - 1;
+    let centered = msg;
+    if (centered.length < panelWidth) {
+        // Match Go fmt: %*s applied to %-*s = right-pad then left-pad → effectively right-aligned within panelWidth
+        const leftPadded = padRight(centered, panelWidth);
+        centered = leftPadded.padStart(panelWidth);
+    } else {
+        centered = centered.slice(0, panelWidth);
+    }
+    for (let i = 0; i < centered.length; i++) {
+        const ch = centered[i];
+        if (ch === ' ') continue;
+        const g = getGlyph(ch, PHOSPHOR_GREEN, BLACK, true);
+        ctx.drawImage(g, (startCol + i) * CELL_SIZE, y);
+    }
+}
+
+function draw() {
+    ctx.fillStyle = BLACK;
+    ctx.fillRect(0, 0, 800, 480);
+    drawGrid();
+    drawTanks();
+    drawMines();
+    drawShots();
+    drawExplosions();
+    drawHUD();
+}
+
+function drawStatus(msg) {
+    if (!ctx) return;
+    ctx.fillStyle = BLACK;
+    ctx.fillRect(0, 0, 800, 480);
+    ctx.fillStyle = PHOSPHOR_GREEN;
+    ctx.font = '20px PetMe64, monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(msg, 400, 240);
+}
+
+function leaveSpectator() {
+    if (window.confirm('Leave spectator view?')) {
+        if (ws) try { ws.close(); } catch (e) {}
+        window.location.href = '/';
+    }
+}
+
+function init() {
+    canvas = document.getElementById('c');
+    ctx = canvas.getContext('2d');
+    resizeCanvas(); // apply 90% scaling on load
+    drawStatus('LOADING...');
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            leaveSpectator();
+        }
+    });
+
+    const font = new FontFace('PetMe64', 'url(/fonts/PetMe.ttf)');
+    font.load().then((loaded) => {
+        document.fonts.add(loaded);
+        buildGlyphCache();
+        drawStatus('CONNECTING...');
+        connectWebSocket();
+        requestAnimationFrame(loop);
+    }).catch((err) => {
+        console.error('Font load failed:', err);
+        drawStatus('FONT LOAD FAILED');
+        buildGlyphCache();
+        connectWebSocket();
+        requestAnimationFrame(loop);
+    });
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && state.phase === 'playing') {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const roomCode = location.pathname.split('/')[2];
+                ws.send(JSON.stringify({type: 'spectate', payload: {room_code: roomCode}}));
+            }
+        }
+    });
+}
+
+function loop(timestamp) {
+    if (state.phase === 'connecting') {
+        drawStatus('CONNECTING...');
+    } else if (state.phase === 'disconnected') {
+        drawStatus('DISCONNECTED - PRESS ESC TO LEAVE');
+    } else {
+        draw();
+    }
+    requestAnimationFrame(loop);
+}
+
+init();
+</script>
+</body>
+</html>

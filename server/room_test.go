@@ -280,7 +280,7 @@ func TestReserveBotSeat(t *testing.T) {
 func TestAddBotPlayer(t *testing.T) {
 	r := NewRoom("ROOM", 3)
 
-	_, err := r.AddBotPlayer("Bot1", "bot-001", "mvp")
+	_, err := r.AddBotPlayer("Bot1", "bot-001", "mvp", 0)
 	if err == nil {
 		t.Fatal("expected AddBotPlayer to fail without reservation")
 	}
@@ -290,7 +290,7 @@ func TestAddBotPlayer(t *testing.T) {
 	}
 
 	r.BotSeatReserved[1] = true
-	id, err := r.AddBotPlayer("Bot1", "bot-001", "mvp")
+	id, err := r.AddBotPlayer("Bot1", "bot-001", "mvp", 0)
 	if err != nil {
 		t.Fatalf("expected AddBotPlayer to succeed after reservation, got %v", err)
 	}

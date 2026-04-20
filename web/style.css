@@ -271,3 +271,97 @@ body::after {
     color: var(--pet-green-dim);
     text-align: center;
 }
+
+.match-list-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin: 15px 0;
+}
+
+.matchlist-header {
+    text-align: center;
+    font-size: 1.3rem;
+    letter-spacing: 3px;
+    color: var(--pet-white);
+    border-bottom: 2px solid var(--pet-green);
+    padding-bottom: 10px;
+}
+
+.spectate-header {
+    text-align: center;
+    font-size: 1.3rem;
+    letter-spacing: 3px;
+    color: var(--pet-amber);
+    border-bottom: 2px solid var(--pet-amber);
+    padding-bottom: 10px;
+}
+
+.match-card {
+    border: 2px solid var(--pet-green);
+    padding: 12px;
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    align-items: center;
+    gap: 15px;
+}
+
+.match-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.match-code {
+    font-size: 1.4rem;
+    color: var(--pet-white);
+    letter-spacing: 4px;
+}
+
+.match-diff {
+    font-size: 0.8rem;
+    color: var(--pet-green-dim);
+}
+
+.match-players {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    font-size: 0.9rem;
+}
+
+.match-vs {
+    color: var(--pet-green-dim);
+    font-size: 0.75rem;
+}
+
+.spectate-btn {
+    color: var(--pet-amber);
+    border-color: var(--pet-amber);
+    width: auto;
+    padding: 8px 16px;
+}
+
+.spectate-btn:hover {
+    background: var(--pet-amber);
+    color: var(--pet-bg);
+}
+
+.reconnect-badge {
+    grid-column: 1 / -1;
+    text-align: center;
+    font-size: 0.75rem;
+    color: var(--pet-amber);
+    letter-spacing: 2px;
+    margin-top: -5px;
+}
+
+.reconnect-status {
+    text-align: center;
+    padding: 10px;
+    border: 2px solid var(--pet-amber);
+    color: var(--pet-amber);
+    font-size: 1rem;
+    letter-spacing: 2px;
+}

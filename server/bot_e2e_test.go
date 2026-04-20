@@ -246,7 +246,7 @@ func TestBot_RoomStatusIncludesBotInfo(t *testing.T) {
 		t.Fatalf("reserve bot seat: %v", err)
 	}
 
-	_, err := room.AddBotPlayer("CPU-MVP", "test-bot-123", "mvp")
+	_, err := room.AddBotPlayer("CPU-MVP", "test-bot-123", "mvp", 0)
 	if err != nil {
 		t.Fatalf("add bot player: %v", err)
 	}

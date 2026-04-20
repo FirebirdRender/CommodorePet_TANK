@@ -38,6 +38,7 @@ func main() {
 	tokens := server.NewTokenStore()
 	handler := server.NewWSHandler(hub, tokens)
 	roomAPI := server.NewRoomAPI(hub, handler.Registry(), tokens)
+	roomAPI.SetStaticDir(*dir)
 
 	serverAddr := "localhost:" + resolvedPort
 	botManager := server.NewBotManager(hub, handler, tokens, serverAddr)
@@ -78,6 +79,7 @@ func main() {
 		}()
 	}
 
+	// Cleanup goroutine for stale rooms and tokens
 	go func() {
 		ticker := time.NewTicker(60 * time.Second)
 		defer ticker.Stop()
@@ -87,20 +89,70 @@ func main() {
 		}
 	}()
 
+	// Shutdown goroutine
+	shutdownCh := make(chan struct{})
 	go func() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 		<-sigCh
 		log.Println("shutting down...")
+		select {
+		case <-shutdownCh:
+			return
+		default:
+			close(shutdownCh)
+		}
 
 		hub.Shutdown(30*time.Second, handler.Registry())
 
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		// Stop accepting new connections and unblock srv.Serve so the process exits.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if err := srv.Shutdown(ctx); err != nil {
-			log.Printf("HTTP shutdown error: %v", err)
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("http server shutdown: %v", err)
 		}
 	}()
+
+	// Bot auto-room goroutine (stops when shutdownCh is closed)
+	if botManager.IsEnabled() {
+		go func() {
+			ticker := time.NewTicker(5 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-shutdownCh:
+					return
+				case <-ticker.C:
+					if hub.GetBotMatchCount() > 0 {
+						continue
+					}
+					room := hub.CreateRoomWithBotPolicy(5, true, false, 0)
+					if room == nil {
+						continue
+					}
+					if err := room.ReserveBotSeatAt(0); err != nil {
+						hub.RemoveRoom(room.Code)
+						continue
+					}
+					if err := room.ReserveBotSeatAt(1); err != nil {
+						hub.RemoveRoom(room.Code)
+						continue
+					}
+					if err := botManager.AssignBotToRoomAt(room.Code, 0, "mvp"); err != nil {
+						log.Printf("[bot] failed to assign bot-0 to room %s: %v", room.Code, err)
+						hub.RemoveRoom(room.Code)
+						continue
+					}
+					if err := botManager.AssignBotToRoomAt(room.Code, 1, "mvp"); err != nil {
+						log.Printf("[bot] failed to assign bot-1 to room %s: %v", room.Code, err)
+						hub.RemoveRoom(room.Code)
+						continue
+					}
+					log.Printf("[bot] auto-created bot-vs-bot room %s (difficulty 5)", room.Code)
+				}
+			}
+		}()
+	}
 
 	log.Printf("TANK! server (v%s) listening on :%s", server.AppVersion, resolvedPort)
 	if err := srv.Serve(ln); err != http.ErrServerClosed {

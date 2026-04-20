@@ -14,15 +14,21 @@ import (
 const ProtocolVersion = "1.0.0"
 
 const (
-	MsgTypeInput        = "input"
-	MsgTypeCreateRoom   = "create_room"
-	MsgTypeJoinRoom     = "join_room"
-	MsgTypeReady        = "ready"
-	MsgTypePlayAgain    = "play_again"
-	MsgTypePlayAgainAck = "play_again_ack"
-	MsgTypeRematch      = "rematch"
-	MsgTypeOpponentLeft = "opponent_left"
-	MsgTypeRejoin       = "rejoin"
+	MsgTypeInput         = "input"
+	MsgTypeCreateRoom    = "create_room"
+	MsgTypeJoinRoom      = "join_room"
+	MsgTypeReady         = "ready"
+	MsgTypePlayAgain     = "play_again"
+	MsgTypePlayAgainAck  = "play_again_ack"
+	MsgTypeRematch       = "rematch"
+	MsgTypeOpponentLeft  = "opponent_left"
+	MsgTypeRejoin        = "rejoin"
+	MsgTypeStayConnected = "stay_connected"
+
+	// Reconnect messages
+	MsgTypePlayerDisconnected = "player_disconnected"
+	MsgTypeReconnectQuery     = "reconnect_query"
+	MsgTypeResumeMatch        = "resume_match"
 
 	MsgTypeRoomCreated = "room_created"
 	MsgTypeJoined      = "joined"
@@ -32,6 +38,10 @@ const (
 	MsgTypeRoundOver   = "round_over"
 	MsgTypeGameOver    = "game_over"
 	MsgTypeError       = "error"
+	// Spectator messages
+	MsgTypeSpectate        = "spectate"
+	MsgTypeSpectatorJoined = "spectator_joined"
+	MsgTypeSpectatorLeft   = "spectator_left"
 )
 
 const (
@@ -41,6 +51,7 @@ const (
 	ErrCodeNotReady      = "not_ready"
 	ErrCodeInvalidInput  = "invalid_input"
 	ErrCodeServerError   = "server_error"
+	ErrCodeReadOnly      = "read_only"
 )
 
 type Envelope struct {
@@ -113,6 +124,8 @@ type TickMsg struct {
 	Explosions      []ExplosionState      `json:"explosions"`
 	BarrelWreckage  []BarrelWreckageState `json:"barrel_wreckage"`
 	BarrelHitBodies [][2]int              `json:"barrel_hit_bodies"`
+	Player1Skill    int                   `json:"player1_skill"`
+	Player2Skill    int                   `json:"player2_skill"`
 }
 
 type RoundOverMsg struct {
@@ -125,6 +138,20 @@ type GameOverMsg struct {
 	Winner       int    `json:"winner"`
 	FinalWins    [2]int `json:"final_wins"`
 	TotalBattles int    `json:"total_battles"`
+}
+
+type SpectateMsg struct {
+	RoomCode string `json:"room_code"`
+}
+
+type SpectatorJoinedMsg struct {
+	PlayerID       int    `json:"player_id"`
+	Name           string `json:"name"`
+	SpectatorCount int    `json:"spectator_count"`
+}
+
+type SpectatorLeftMsg struct {
+	SpectatorCount int `json:"spectator_count"`
 }
 
 type ErrorMsg struct {
@@ -186,6 +213,23 @@ type BarrelWreckageState struct {
 	X   int `json:"x"`
 	Y   int `json:"y"`
 	Dir int `json:"dir"`
+}
+
+type PlayerDisconnectedMsg struct {
+	Duration          int     `json:"duration"`
+	ReconnectDeadline float64 `json:"reconnect_deadline"`
+}
+
+type ReconnectQueryMsg struct {
+	SecondsRemaining int `json:"seconds_remaining"`
+}
+
+type StayConnectedMsg struct {
+	Confirm bool `json:"confirm"`
+}
+
+type ResumeMatchMsg struct {
+	RoomCode string `json:"room_code"`
 }
 
 func WrapMessage(msgType string, payload any) ([]byte, error) {

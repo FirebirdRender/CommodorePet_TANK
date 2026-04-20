@@ -15,31 +15,34 @@ import (
 )
 
 type Game struct {
-	state    *GameState
-	renderer *Renderer
-	network  *Network
-	input    *InputHandler
-	audio    *AudioPlayer
+	state        *GameState
+	renderer     *Renderer
+	network      *Network
+	input        *InputHandler
+	audio        *AudioPlayer
+	sceneManager *SceneManager
 
-	serverURL  string
-	playerName string
-	playerID   int
-	roomCode   string
-	token      string
+	serverURL   string
+	playerName  string
+	playerID    int
+	roomCode    string
+	token       string
+	isSpectator bool
 }
 
-func NewGame(serverURL, playerName string, playerID int, roomCode, token string) *Game {
+func NewGame(serverURL, playerName string, playerID int, roomCode, token string, isSpectator bool) *Game {
 	return &Game{
 		state: &GameState{
 			Phase:           PhaseDisconnected,
 			ExplosionTimers: make(map[[2]int]float64),
 			DirtyCells:      nil,
 		},
-		serverURL:  serverURL,
-		playerName: playerName,
-		playerID:   playerID,
-		roomCode:   roomCode,
-		token:      token,
+		serverURL:   serverURL,
+		playerName:  playerName,
+		playerID:    playerID,
+		roomCode:    roomCode,
+		token:       token,
+		isSpectator: isSpectator,
 	}
 }
 
@@ -85,12 +88,18 @@ func (g *Game) ConnectAsync() {
 				}
 				initOffscreen()
 
-				g.network.Send(MsgTypeRejoin, RejoinMsg{
-					RoomCode:   g.roomCode,
-					PlayerID:   g.playerID,
-					Token:      g.token,
-					PlayerName: g.playerName,
-				})
+				if g.isSpectator {
+					g.network.Send(MsgTypeSpectate, SpectateMsg{
+						RoomCode: g.roomCode,
+					})
+				} else {
+					g.network.Send(MsgTypeRejoin, RejoinMsg{
+						RoomCode:   g.roomCode,
+						PlayerID:   g.playerID,
+						Token:      g.token,
+						PlayerName: g.playerName,
+					})
+				}
 
 				g.state.Connected = true
 				g.state.ConnectErr = ""
@@ -119,6 +128,12 @@ func (g *Game) Update() error {
 			// Return error to signal Ebiten to stop the game loop
 			// This prevents the WASM program from continuing after redirect
 			return fmt.Errorf("redirecting to lobby")
+		case PhaseSpectating:
+			if g.state.EscConfirmPending {
+				redirectLobby()
+				return fmt.Errorf("redirecting to lobby")
+			}
+			g.state.EscConfirmPending = true
 		case PhasePlaying, PhaseRoundOver:
 			if g.state.EscConfirmPending {
 				g.state.Phase = PhaseDisconnected
@@ -171,6 +186,14 @@ func (g *Game) Update() error {
 		}
 	}
 
+	if g.state.Phase == PhaseWaitingReconnect {
+		g.state.DisconnectCountdown -= 1.0 / 60.0
+		if g.state.DisconnectCountdown <= 0 {
+			redirectLobby()
+			return fmt.Errorf("redirecting to lobby")
+		}
+	}
+
 	if g.state.Phase == PhaseGameOver {
 		if inpututil.IsKeyJustPressed(ebiten.KeyP) {
 			g.network.Send(MsgTypePlayAgain, PlayAgainMsg{})
@@ -178,7 +201,7 @@ func (g *Game) Update() error {
 		}
 	}
 
-	if g.state.Phase == PhasePlaying && g.input != nil {
+	if g.state.Phase == PhasePlaying && !g.isSpectator && g.input != nil {
 		g.input.Update()
 		events := g.input.PollEdgeEvents()
 		for _, ev := range events {
@@ -261,6 +284,11 @@ func (g *Game) handleMessage(msgType string, payload []byte) {
 		if g.audio != nil {
 			g.audio.Play(SFXGameOver)
 		}
+		if g.isSpectator {
+			g.state.Phase = PhaseWaitingReconnect
+			g.state.DisconnectCountdown = 5.0
+			g.state.ErrorMsgText = fmt.Sprintf("PLAYER #%d WINS - RETURNING TO LOBBY", msg.Winner)
+		}
 
 	case MsgTypeError:
 		var msg ErrorMsg
@@ -297,6 +325,58 @@ func (g *Game) handleMessage(msgType string, payload []byte) {
 		}
 		g.state.ApplyRematch(msg)
 
+	case MsgTypeSpectatorJoined:
+		var msg SpectatorJoinedMsg
+		if err := json.Unmarshal(payload, &msg); err != nil {
+			log.Printf("spectator_joined unmarshal error: %v", err)
+			return
+		}
+		g.state.Phase = PhaseSpectating
+		g.state.SpectatorPlayerID = msg.PlayerID
+		g.state.SpectatorCount = msg.SpectatorCount
+		log.Printf("spectator joined: playerID=%d name=%s count=%d", msg.PlayerID, msg.Name, msg.SpectatorCount)
+
+	case MsgTypeSpectatorLeft:
+		var msg SpectatorLeftMsg
+		if err := json.Unmarshal(payload, &msg); err != nil {
+			log.Printf("spectator_left unmarshal error: %v", err)
+			return
+		}
+		g.state.SpectatorCount = msg.SpectatorCount
+
+	case MsgTypePlayerDisconnected:
+		var msg PlayerDisconnectedMsg
+		if err := json.Unmarshal(payload, &msg); err != nil {
+			log.Printf("player_disconnected unmarshal error: %v", err)
+			return
+		}
+		g.state.Phase = PhaseWaitingReconnect
+		g.state.ReconnectDeadline = msg.ReconnectDeadline
+		g.state.DisconnectCountdown = msg.ReconnectDeadline
+		if g.input != nil {
+			g.input.SetEnabled(false)
+		}
+
+	case MsgTypeReconnectQuery:
+		var msg ReconnectQueryMsg
+		if err := json.Unmarshal(payload, &msg); err != nil {
+			log.Printf("reconnect_query unmarshal error: %v", err)
+			return
+		}
+		g.state.ReconnectQuerySecondsRemaining = msg.SecondsRemaining
+		go func() {
+			time.Sleep(1 * time.Second)
+			if g.network != nil && g.network.Connected {
+				g.network.Send(MsgTypeStayConnected, StayConnectedMsg{Confirm: true})
+			}
+		}()
+
+	case MsgTypeResumeMatch:
+		g.state.Phase = PhasePlaying
+		if g.input != nil {
+			g.input.SetEnabled(true)
+		}
+
 	default:
 		log.Printf("unknown message type: %s", msgType)
 	}
@@ -323,6 +403,10 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			barPhase = "GAME_OVER"
 		case PhaseDisconnected:
 			barPhase = "DISCONNECTED"
+		case PhaseSpectating:
+			barPhase = "SPECTATING"
+		case PhaseWaitingReconnect:
+			barPhase = "WAIT_RECONNECT"
 		default:
 			barPhase = "UNKNOWN"
 		}

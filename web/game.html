@@ -36,6 +36,8 @@
             pid: parseInt(params.get('pid') || '0', 10),
             token: params.get('token') || '',
             name: params.get('name') || 'Player',
+            isSpectator: params.get('spectate') !== null,
+            spectateRoom: params.get('spectate') || '',
             serverUrl: (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws'
         };
         

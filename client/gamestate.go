@@ -10,6 +10,8 @@ const (
 	PhaseRoundOver
 	PhaseGameOver
 	PhaseDisconnected
+	PhaseSpectating
+	PhaseWaitingReconnect
 )
 
 // KeyframeInterval is the number of ticks between full keyframes (must match server)
@@ -51,6 +53,15 @@ type GameState struct {
 	Connected bool
 	Error     *ErrorMsg // latest error from server, nil if no error
 
+	// Spectator state
+	SpectatorPlayerID int
+	SpectatorCount    int
+
+	// Reconnection state
+	ReconnectDeadline              float64
+	DisconnectCountdown            float64
+	ReconnectQuerySecondsRemaining int
+
 	ErrorMsgText         string
 	ConnectErr           string
 	OpponentWantsRematch bool
@@ -88,7 +99,11 @@ func (gs *GameState) ApplyGameStart(msg GameStartMsg) {
 			len(gs.Grid), len(gs.Grid[0]), len(msg.Grid), len(msg.Grid[0]))
 	}
 
-	gs.Phase = PhasePlaying
+	if msg.YourPlayerID == 0 {
+		gs.Phase = PhaseSpectating
+	} else {
+		gs.Phase = PhasePlaying
+	}
 	gs.PlayerID = msg.YourPlayerID
 	gs.Difficulty = msg.Difficulty
 	gs.EscConfirmPending = false

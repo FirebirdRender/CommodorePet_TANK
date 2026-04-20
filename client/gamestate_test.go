@@ -652,7 +652,7 @@ func TestKeyToDir(t *testing.T) {
 }
 
 func TestNewGameSetsPlayerName(t *testing.T) {
-	g := NewGame("ws://localhost:8080/ws", "TestPlayer", 1, "ABCD", "token123")
+	g := NewGame("ws://localhost:8080/ws", "TestPlayer", 1, "ABCD", "token123", false)
 	if g.playerName != "TestPlayer" {
 		t.Errorf("playerName = %q, want 'TestPlayer'", g.playerName)
 	}
@@ -662,7 +662,7 @@ func TestNewGameSetsPlayerName(t *testing.T) {
 }
 
 func TestExportGameStateNativeNoop(t *testing.T) {
-	g := NewGame("ws://localhost:8080/ws", "TestPlayer", 1, "ABCD", "token123")
+	g := NewGame("ws://localhost:8080/ws", "TestPlayer", 1, "ABCD", "token123", false)
 	g.ExportGameState()
 }
 

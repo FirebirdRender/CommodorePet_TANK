@@ -24,6 +24,12 @@ func (e *testEvents) OnTick(_ uint64, state *TickMsg) {
 func (e *testEvents) OnTickDelta(_ uint64, state *TickDeltaMsg) {
 }
 
+func (e *testEvents) OnTickSpectator(_ uint64, state *TickMsg) {
+}
+
+func (e *testEvents) OnTickDeltaSpectator(_ uint64, state *TickDeltaMsg) {
+}
+
 func (e *testEvents) OnRoundOver(msg *RoundOverMsg) {
 	e.mu.Lock()
 	defer e.mu.Unlock()

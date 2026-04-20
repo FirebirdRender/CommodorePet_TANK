@@ -327,3 +327,57 @@ func scanLines(data []byte, atEOF bool) (advance int, token []byte, err error) {
 	}
 	return 0, data, io.EOF
 }
+
+func TestSpectatePageRoute(t *testing.T) {
+	// Test valid code returns spectate.html
+	hub := NewHub()
+	tokens := NewTokenStore()
+	reg := NewConnRegistry()
+	api := NewRoomAPI(hub, reg, tokens)
+	api.SetStaticDir("../web")
+
+	mux := http.NewServeMux()
+	api.RegisterRoutes(mux)
+
+	r := httptest.NewRequest("GET", "/spectate/ABCD", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Errorf("GET /spectate/ABCD: expected 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "<!DOCTYPE html>") {
+		t.Errorf("GET /spectate/ABCD: expected HTML content, got: %s", w.Body.String())
+	}
+
+	// Test empty code returns 404
+	r = httptest.NewRequest("GET", "/spectate/", nil)
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != 404 {
+		t.Errorf("GET /spectate/: expected 404, got %d", w.Code)
+	}
+
+	// Test invalid code (3 chars) returns 404
+	r = httptest.NewRequest("GET", "/spectate/ABC", nil)
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != 404 {
+		t.Errorf("GET /spectate/ABC: expected 404, got %d", w.Code)
+	}
+
+	// Test invalid code (lowercase) returns 404
+	r = httptest.NewRequest("GET", "/spectate/abcd", nil)
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != 404 {
+		t.Errorf("GET /spectate/abcd: expected 404, got %d", w.Code)
+	}
+
+	// Test method not allowed returns 405
+	r = httptest.NewRequest("POST", "/spectate/ABCD", nil)
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != 405 {
+		t.Errorf("POST /spectate/ABCD: expected 405, got %d", w.Code)
+	}
+}

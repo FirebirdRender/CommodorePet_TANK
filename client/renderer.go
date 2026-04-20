@@ -108,6 +108,16 @@ func (r *Renderer) Draw(screen *ebiten.Image, state *GameState) {
 		r.drawGrid(screen, state)
 		r.drawHUD(screen, state)
 		r.drawGameOverOverlay(screen, state)
+	} else if state.Phase == PhaseSpectating {
+		r.drawGrid(screen, state)
+		r.drawExplosions(screen, state)
+		r.drawHUD(screen, state)
+		r.drawSpectatingLabel(screen, state)
+	} else if state.Phase == PhaseWaitingReconnect {
+		r.drawGrid(screen, state)
+		r.drawExplosions(screen, state)
+		r.drawHUD(screen, state)
+		r.drawWaitingReconnectOverlay(screen, state)
 	}
 }
 
@@ -516,4 +526,65 @@ func (r *Renderer) drawEscConfirmOverlay(screen *ebiten.Image, state *GameState)
 	op2.GeoM.Translate(centerX-w2/2, centerY+10)
 	op2.ColorScale.ScaleWithColor(ColorPhosphorGreen)
 	text.Draw(screen, line2, face, op2)
+}
+
+func (r *Renderer) drawSpectatingLabel(screen *ebiten.Image, state *GameState) {
+	face := &text.GoTextFace{
+		Source: r.hudFace.Source,
+		Size:   24,
+	}
+
+	textStr := "SPECTATING"
+	w, _ := text.Measure(textStr, face, 0)
+	x := float64(BoardCols*CellSize)/2 - w/2
+	y := float64(4)
+
+	op := &text.DrawOptions{}
+	op.GeoM.Translate(x, y)
+	op.ColorScale.ScaleWithColor(ColorPhosphorGreen)
+	text.Draw(screen, textStr, face, op)
+}
+
+func (r *Renderer) drawWaitingReconnectOverlay(screen *ebiten.Image, state *GameState) {
+	face := &text.GoTextFace{
+		Source: r.hudFace.Source,
+		Size:   28,
+	}
+
+	mainText := "OPPONENT DISCONNECTED"
+	subText := fmt.Sprintf("RECONNECTING... %.0fs", state.DisconnectCountdown)
+
+	w1, _ := text.Measure(mainText, face, 0)
+	subFace := &text.GoTextFace{
+		Source: r.hudFace.Source,
+		Size:   16,
+	}
+	w2, _ := text.Measure(subText, subFace, 0)
+	maxW := w1
+	if w2 > maxW {
+		maxW = w2
+	}
+
+	centerX := float64(BoardCols*CellSize) / 2
+	centerY := float64(BoardRows*CellSize)/2 + HUDHeight
+
+	boxW := maxW + 40
+	boxH := float64(80)
+	boxX := centerX - boxW/2
+	boxY := centerY - boxH/2
+
+	vector.FillRect(screen, float32(boxX), float32(boxY), float32(boxW), float32(boxH),
+		ColorBlack, false)
+	vector.StrokeRect(screen, float32(boxX), float32(boxY), float32(boxW), float32(boxH), 2,
+		color.RGBA{255, 80, 80, 255}, false)
+
+	op1 := &text.DrawOptions{}
+	op1.GeoM.Translate(centerX-w1/2, centerY-20)
+	op1.ColorScale.ScaleWithColor(color.RGBA{255, 80, 80, 255})
+	text.Draw(screen, mainText, face, op1)
+
+	op2 := &text.DrawOptions{}
+	op2.GeoM.Translate(centerX-w2/2, centerY+10)
+	op2.ColorScale.ScaleWithColor(ColorPhosphorGreen)
+	text.Draw(screen, subText, subFace, op2)
 }

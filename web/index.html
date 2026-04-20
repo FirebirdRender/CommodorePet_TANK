@@ -24,6 +24,15 @@
         .ai-mode-label.visible {
             display: block;
         }
+        .btn-spectate {
+            background: var(--pet-bg);
+            color: var(--pet-amber);
+            border: 2px solid var(--pet-amber);
+        }
+        .btn-spectate:hover {
+            background: var(--pet-amber);
+            color: var(--pet-bg);
+        }
     </style>
 </head>
 <body>
@@ -62,6 +71,12 @@
                     <button id="btn-join" class="btn btn-secondary" type="button">JOIN</button>
                 </div>
             </div>
+
+            <div class="divider">-- OR --</div>
+
+            <div class="btn-container">
+                <button id="btn-spectate" class="btn btn-spectate" type="button">SPECTATE MATCHES</button>
+            </div>
         </section>
 
         <!-- SCREEN: WAITING -->
@@ -90,6 +105,29 @@
             <div class="status-text" style="text-align: center;">
                 JOINING ROOM: <span id="join-display-code">----</span><br>
                 CONNECTING... <span class="blink">_</span>
+            </div>
+        </section>
+
+        <!-- SCREEN: MATCH LIST -->
+        <section id="screen-matchlist" class="screen hidden">
+            <div class="matchlist-header">ACTIVE MATCHES</div>
+            <div id="match-list-container" class="match-list-container"></div>
+            <div class="btn-container">
+                <button id="btn-back-lobby" class="btn btn-secondary" type="button">BACK</button>
+            </div>
+        </section>
+
+        <!-- SCREEN: SPECTATE -->
+        <section id="screen-spectate" class="screen hidden">
+            <div class="spectate-header">SPECTATING</div>
+            <div id="spectate-room-code" class="room-code-display" style="font-size: 2rem;">----</div>
+            <div id="spectate-status" class="status-text">CONNECTING TO GAME...</div>
+            <div id="reconnect-status" class="reconnect-status hidden">
+                <span class="reconnect-text">RECONNECTING</span>
+                <span class="blink">_</span>
+            </div>
+            <div class="btn-container">
+                <button id="btn-leave-spectate" class="btn btn-secondary" type="button">LEAVE</button>
             </div>
         </section>
     </main>

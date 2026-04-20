@@ -15,7 +15,7 @@ import (
 )
 
 func TestGetJSConfigReturnType(t *testing.T) {
-	var _ func() (string, string, int, string, string) = getJSConfig
+	var _ func() (string, string, int, string, string, bool) = getJSConfig
 }
 
 func TestRedirectLobbyCompiles(t *testing.T) {

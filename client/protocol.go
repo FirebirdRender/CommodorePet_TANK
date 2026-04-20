@@ -14,17 +14,24 @@ const (
 	MsgTypePlayAgain  = "play_again"
 	MsgTypeRejoin     = "rejoin"
 
-	MsgTypeRoomCreated  = "room_created"
-	MsgTypeJoined       = "joined"
-	MsgTypeGameStart    = "game_start"
-	MsgTypeTick         = "tick"
-	MsgTypeTickDelta    = "tick_delta"
-	MsgTypeRoundOver    = "round_over"
-	MsgTypeGameOver     = "game_over"
-	MsgTypeError        = "error"
-	MsgTypePlayAgainAck = "play_again_ack"
-	MsgTypeRematch      = "rematch"
-	MsgTypeOpponentLeft = "opponent_left"
+	MsgTypeRoomCreated        = "room_created"
+	MsgTypeJoined             = "joined"
+	MsgTypeGameStart          = "game_start"
+	MsgTypeTick               = "tick"
+	MsgTypeTickDelta          = "tick_delta"
+	MsgTypeRoundOver          = "round_over"
+	MsgTypeGameOver           = "game_over"
+	MsgTypeError              = "error"
+	MsgTypePlayAgainAck       = "play_again_ack"
+	MsgTypeRematch            = "rematch"
+	MsgTypeOpponentLeft       = "opponent_left"
+	MsgTypeSpectate           = "spectate"
+	MsgTypeSpectatorJoined    = "spectator_joined"
+	MsgTypeSpectatorLeft      = "spectator_left"
+	MsgTypePlayerDisconnected = "player_disconnected"
+	MsgTypeReconnectQuery     = "reconnect_query"
+	MsgTypeStayConnected      = "stay_connected"
+	MsgTypeResumeMatch        = "resume_match"
 )
 
 // Error code constants
@@ -127,6 +134,35 @@ type RematchMsg struct {
 
 type OpponentLeftMsg struct {
 	Reason string `json:"reason"`
+}
+
+type SpectateMsg struct {
+	RoomCode string `json:"room_code"`
+}
+
+type SpectatorJoinedMsg struct {
+	PlayerID       int    `json:"player_id"`
+	Name           string `json:"name"`
+	SpectatorCount int    `json:"spectator_count"`
+}
+
+type SpectatorLeftMsg struct {
+	SpectatorCount int `json:"spectator_count"`
+}
+
+type PlayerDisconnectedMsg struct {
+	ReconnectDeadline float64 `json:"reconnect_deadline"`
+}
+
+type ReconnectQueryMsg struct {
+	SecondsRemaining int `json:"seconds_remaining"`
+}
+
+type StayConnectedMsg struct {
+	Confirm bool `json:"confirm"`
+}
+
+type ResumeMatchMsg struct {
 }
 
 // Entity state types

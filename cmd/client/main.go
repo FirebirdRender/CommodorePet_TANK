@@ -13,7 +13,7 @@ func main() {
 	name := flag.String("name", "", "player name (WASM: from tankConfig)")
 	flag.Parse()
 
-	serverURL, playerName, playerID, roomCode, token := getConfig()
+	serverURL, playerName, playerID, roomCode, token, isSpectator := getConfig()
 
 	if *addr != "" {
 		serverURL = *addr
@@ -24,7 +24,7 @@ func main() {
 
 	log.Printf("TANK! connecting to %s as %s (room=%s, pid=%d)", serverURL, playerName, roomCode, playerID)
 
-	game := client.NewGame(serverURL, playerName, playerID, roomCode, token)
+	game := client.NewGame(serverURL, playerName, playerID, roomCode, token, isSpectator)
 
 	ebiten.SetWindowSize(800, 480)
 	ebiten.SetWindowTitle("TANK!")

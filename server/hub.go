@@ -2,18 +2,32 @@ package server
 
 import (
 	"crypto/rand"
+	"encoding/json"
+	"fmt"
 	"math/big"
+	"net/http"
 	"sync"
 	"time"
 )
 
+type GlobalSSEClient struct {
+	w       http.ResponseWriter
+	flusher http.Flusher
+	done    chan struct{}
+}
+
 type Hub struct {
-	rooms map[string]*Room
-	mu    sync.Mutex
+	rooms            map[string]*Room
+	mu               sync.Mutex
+	globalSSEClients map[*GlobalSSEClient]struct{}
+	globalSSEMu      sync.Mutex
 }
 
 func NewHub() *Hub {
-	return &Hub{rooms: make(map[string]*Room)}
+	return &Hub{
+		rooms:            make(map[string]*Room),
+		globalSSEClients: make(map[*GlobalSSEClient]struct{}),
+	}
 }
 
 func (h *Hub) CreateRoom(difficulty int) *Room {
@@ -76,6 +90,46 @@ func (h *Hub) RoomCount() int {
 	return len(h.rooms)
 }
 
+func (h *Hub) GetPublicRooms() []*Room {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var result []*Room
+	for _, room := range h.rooms {
+		if room.IsPublic() && room.GetState() == RoomWaiting {
+			result = append(result, room)
+		}
+	}
+	return result
+}
+
+func (h *Hub) GetPlayingRooms() []*Room {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var result []*Room
+	for _, room := range h.rooms {
+		if room.IsPublic() && room.GetState() == RoomPlaying {
+			result = append(result, room)
+		}
+	}
+	return result
+}
+
+func (h *Hub) GetBotMatchCount() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	count := 0
+	for _, room := range h.rooms {
+		if room.AllowBot && !room.AutoFillBot && room.BothPlayersConnected() {
+			p1 := room.Players[0]
+			p2 := room.Players[1]
+			if p1 != nil && p2 != nil && p1.IsBot && p2.IsBot {
+				count++
+			}
+		}
+	}
+	return count
+}
+
 func (h *Hub) CleanupStaleRooms(maxAge time.Duration) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -110,6 +164,42 @@ func (h *Hub) generateCode() string {
 		b[i] = alph[n.Int64()]
 	}
 	return string(b)
+}
+
+func (h *Hub) AddGlobalSSEClient(c *GlobalSSEClient) {
+	h.globalSSEMu.Lock()
+	h.globalSSEClients[c] = struct{}{}
+	h.globalSSEMu.Unlock()
+}
+
+func (h *Hub) RemoveGlobalSSEClient(c *GlobalSSEClient) {
+	h.globalSSEMu.Lock()
+	delete(h.globalSSEClients, c)
+	h.globalSSEMu.Unlock()
+	close(c.done)
+}
+
+func (h *Hub) BroadcastGlobal(event string, data any) {
+	h.globalSSEMu.Lock()
+	defer h.globalSSEMu.Unlock()
+
+	payload, _ := json.Marshal(data)
+	for client := range h.globalSSEClients {
+		fmt.Fprintf(client.w, "event: %s\ndata: %s\n\n", event, string(payload))
+		client.flusher.Flush()
+	}
+}
+
+func (h *Hub) BroadcastMatchAvailable(roomCode string, difficulty int) {
+	h.BroadcastGlobal("match_available", map[string]any{"room_code": roomCode, "difficulty": difficulty})
+}
+
+func (h *Hub) BroadcastMatchStarted(roomCode string) {
+	h.BroadcastGlobal("match_started", map[string]any{"room_code": roomCode})
+}
+
+func (h *Hub) BroadcastMatchEnded(roomCode string) {
+	h.BroadcastGlobal("match_ended", map[string]any{"room_code": roomCode})
 }
 
 // Shutdown notifies all connected players of server shutdown,

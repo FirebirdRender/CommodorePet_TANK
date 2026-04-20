@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 )
@@ -14,13 +15,15 @@ type RoomAPI struct {
 	registry   *ConnRegistry
 	tokens     *TokenStore
 	botManager *BotManager
+	staticDir  string
 }
 
 func NewRoomAPI(hub *Hub, registry *ConnRegistry, tokens *TokenStore) *RoomAPI {
 	return &RoomAPI{
-		hub:      hub,
-		registry: registry,
-		tokens:   tokens,
+		hub:       hub,
+		registry:  registry,
+		tokens:    tokens,
+		staticDir: "web",
 	}
 }
 
@@ -28,9 +31,20 @@ func (api *RoomAPI) SetBotManager(bm *BotManager) {
 	api.botManager = bm
 }
 
+// SetStaticDir overrides the directory used to serve static HTML pages
+// (e.g. /spectate/{code} -> {staticDir}/spectate.html). Defaults to "web".
+func (api *RoomAPI) SetStaticDir(dir string) {
+	if dir != "" {
+		api.staticDir = dir
+	}
+}
+
 func (api *RoomAPI) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/room", api.handleCreateRoom)
 	mux.HandleFunc("/api/room/", api.handleRoomRoutes)
+	mux.HandleFunc("/api/rooms", api.handleListRooms)
+	mux.HandleFunc("/api/events", api.handleGlobalEvents)
+	mux.HandleFunc("/spectate/", api.handleSpectatePage)
 }
 
 func (api *RoomAPI) handleCreateRoom(w http.ResponseWriter, r *http.Request) {
@@ -359,4 +373,147 @@ func (api *RoomAPI) handleRoomEvents(w http.ResponseWriter, r *http.Request, cod
 			lastState = currState
 		}
 	}
+}
+
+func (api *RoomAPI) handleListRooms(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	filter := r.URL.Query().Get("filter")
+
+	var rooms []*Room
+	switch filter {
+	case "playing":
+		rooms = api.hub.GetPlayingRooms()
+	case "waiting", "":
+		rooms = api.hub.GetPublicRooms()
+	default:
+		http.Error(w, "Invalid filter", http.StatusBadRequest)
+		return
+	}
+
+	type playerSummary struct {
+		Name  string `json:"name"`
+		IsBot bool   `json:"is_bot"`
+	}
+	type roomSummary struct {
+		Code       string          `json:"code"`
+		Difficulty int             `json:"difficulty"`
+		State      string          `json:"state"`
+		Players    []playerSummary `json:"players"`
+	}
+
+	out := make([]roomSummary, 0, len(rooms))
+	for _, room := range rooms {
+		state := room.GetState()
+		var stateStr string
+		switch state {
+		case RoomWaiting:
+			stateStr = "waiting"
+		case RoomReady:
+			stateStr = "ready"
+		case RoomPlaying:
+			stateStr = "playing"
+		case RoomGameOver:
+			stateStr = "game_over"
+		case RoomWaitingReconnect:
+			stateStr = "waiting_reconnect"
+		default:
+			stateStr = "unknown"
+		}
+
+		players := make([]playerSummary, 0, 2)
+		room.mu.Lock()
+		for _, p := range room.Players {
+			if p == nil {
+				continue
+			}
+			players = append(players, playerSummary{Name: p.Name, IsBot: p.IsBot})
+		}
+		room.mu.Unlock()
+
+		out = append(out, roomSummary{
+			Code:       room.Code,
+			Difficulty: room.Difficulty,
+			State:      stateStr,
+			Players:    players,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(out)
+}
+
+func (api *RoomAPI) handleGlobalEvents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	client := &GlobalSSEClient{
+		w:       w,
+		flusher: flusher,
+		done:    make(chan struct{}),
+	}
+	api.hub.AddGlobalSSEClient(client)
+	defer func() {
+		// RemoveGlobalSSEClient closes done; guard against double-close on ctx cancel.
+		defer func() { _ = recover() }()
+		api.hub.RemoveGlobalSSEClient(client)
+	}()
+
+	// Initial keepalive comment so EventSource transitions to OPEN immediately.
+	fmt.Fprint(w, ": connected\n\n")
+	flusher.Flush()
+
+	keepalive := time.NewTicker(15 * time.Second)
+	defer keepalive.Stop()
+
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-client.done:
+			return
+		case <-keepalive.C:
+			fmt.Fprint(w, ": keepalive\n\n")
+			flusher.Flush()
+		}
+	}
+}
+
+func (api *RoomAPI) handleSpectatePage(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	path := strings.TrimPrefix(r.URL.Path, "/spectate/")
+	if path == "" {
+		http.NotFound(w, r)
+		return
+	}
+	if err := validateRoomCode(path); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	http.ServeFile(w, r, api.staticDir+"/spectate.html")
+}
+
+func getCwd() string {
+	dir, _ := os.Getwd()
+	return dir
 }
