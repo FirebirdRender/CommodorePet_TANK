@@ -53,7 +53,7 @@ func TestTokenStoreCleanup(t *testing.T) {
 }
 
 func TestRoomAPI_CreateRoom(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(0)
 	ts := NewTokenStore()
 	reg := NewConnRegistry()
 	api := NewRoomAPI(hub, reg, ts, "*")
@@ -101,7 +101,7 @@ func TestRoomAPI_CreateRoom(t *testing.T) {
 }
 
 func TestRoomAPI_JoinRoom(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(0)
 	ts := NewTokenStore()
 	reg := NewConnRegistry()
 	api := NewRoomAPI(hub, reg, ts, "*")
@@ -132,7 +132,7 @@ func TestRoomAPI_JoinRoom(t *testing.T) {
 }
 
 func TestRoomAPI_GetRoomStatus(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(0)
 	ts := NewTokenStore()
 	reg := NewConnRegistry()
 	api := NewRoomAPI(hub, reg, ts, "*")
@@ -184,31 +184,33 @@ func TestRoomAPI_GetRoomStatus(t *testing.T) {
 		room.AddPlayer("Bob")
 		room.SetState(RoomPlaying)
 
+		// S7: Playing rooms return 404 to prevent enumeration
 		w := httptest.NewRecorder()
 		r := httptest.NewRequest(http.MethodGet, "/api/room/"+code+"/status", nil)
 		api.handleRoomRoutes(w, r)
 
+		if w.Code != http.StatusNotFound {
+			t.Errorf("expected 404 for playing room (enumeration protection), got %d", w.Code)
+		}
+	})
+
+	t.Run("WaitingRoomReturnsStatus", func(t *testing.T) {
+		room2 := hub.CreateRoom(5)
+		code2 := room2.Code
+		room2.AddPlayer("Alice")
+
+		w := httptest.NewRecorder()
+		r := httptest.NewRequest(http.MethodGet, "/api/room/"+code2+"/status", nil)
+		api.handleRoomRoutes(w, r)
+
 		if w.Code != http.StatusOK {
-			t.Errorf("expected 200, got %d: %s", w.Code, w.Body.String())
-		}
-
-		var resp map[string]any
-		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
-			t.Fatal(err)
-		}
-
-		if resp["status"] != "playing" {
-			t.Errorf("expected status 'playing', got %v", resp["status"])
-		}
-		players, ok := resp["players"].([]any)
-		if !ok || len(players) != 2 {
-			t.Errorf("expected 2 players, got %v", resp["players"])
+			t.Errorf("expected 200 for waiting room, got %d: %s", w.Code, w.Body.String())
 		}
 	})
 }
 
 func TestRoomAPI_RoomEvents_SSE(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(0)
 	ts := NewTokenStore()
 	reg := NewConnRegistry()
 	api := NewRoomAPI(hub, reg, ts, "*")
@@ -370,7 +372,7 @@ func scanLines(data []byte, atEOF bool) (advance int, token []byte, err error) {
 
 func TestSpectatePageRoute(t *testing.T) {
 	// Test valid code returns spectate.html
-	hub := NewHub()
+	hub := NewHub(0)
 	tokens := NewTokenStore()
 	reg := NewConnRegistry()
 	api := NewRoomAPI(hub, reg, tokens, "*")

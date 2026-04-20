@@ -2,23 +2,44 @@ package server
 
 import (
 	"crypto/rand"
+	"encoding/json"
+	"fmt"
 	"math/big"
+	"net/http"
 	"sync"
 	"time"
 )
 
-type Hub struct {
-	rooms map[string]*Room
-	mu    sync.Mutex
+type GlobalSSEClient struct {
+	w       http.ResponseWriter
+	flusher http.Flusher
+	done    chan struct{}
 }
 
-func NewHub() *Hub {
-	return &Hub{rooms: make(map[string]*Room)}
+type Hub struct {
+	rooms            map[string]*Room
+	mu               sync.Mutex
+	globalSSEClients map[*GlobalSSEClient]struct{}
+	globalSSEMu      sync.Mutex
+	maxRooms         int
+}
+
+func NewHub(maxRooms int) *Hub {
+	return &Hub{
+		rooms:            make(map[string]*Room),
+		globalSSEClients: make(map[*GlobalSSEClient]struct{}),
+		maxRooms:         maxRooms,
+	}
 }
 
 func (h *Hub) CreateRoom(difficulty int) *Room {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
+	// S3: Room count cap
+	if h.maxRooms > 0 && len(h.rooms) >= h.maxRooms {
+		return nil
+	}
 
 	for range 100 {
 		code := h.generateCode()
@@ -53,6 +74,11 @@ func (h *Hub) CreateRoomWithBotPolicy(difficulty int, allowBot, autoFillBot bool
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	// S3: Room count cap
+	if h.maxRooms > 0 && len(h.rooms) >= h.maxRooms {
+		return nil
+	}
+
 	for range 100 {
 		code := h.generateCode()
 		if code == "" {
@@ -76,6 +102,46 @@ func (h *Hub) RoomCount() int {
 	return len(h.rooms)
 }
 
+func (h *Hub) GetPublicRooms() []*Room {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var result []*Room
+	for _, room := range h.rooms {
+		if room.IsPublic() && room.GetState() == RoomWaiting {
+			result = append(result, room)
+		}
+	}
+	return result
+}
+
+func (h *Hub) GetPlayingRooms() []*Room {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var result []*Room
+	for _, room := range h.rooms {
+		if room.IsPublic() && room.GetState() == RoomPlaying {
+			result = append(result, room)
+		}
+	}
+	return result
+}
+
+func (h *Hub) GetBotMatchCount() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	count := 0
+	for _, room := range h.rooms {
+		if room.AllowBot && !room.AutoFillBot && room.BothPlayersConnected() {
+			p1 := room.Players[0]
+			p2 := room.Players[1]
+			if p1 != nil && p2 != nil && p1.IsBot && p2.IsBot {
+				count++
+			}
+		}
+	}
+	return count
+}
+
 func (h *Hub) CleanupStaleRooms(maxAge time.Duration) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -92,7 +158,9 @@ func (h *Hub) CleanupStaleRooms(maxAge time.Duration) {
 			continue
 		}
 
-		if state == RoomWaiting && now.Sub(createdAt) > maxAge {
+		// S3/S4: Clean up stale waiting and game-over rooms; cancel auto-fill timers
+		if (state == RoomWaiting || state == RoomGameOver) && now.Sub(createdAt) > maxAge {
+			room.CancelBotReservation()
 			delete(h.rooms, code)
 		}
 	}
@@ -110,6 +178,42 @@ func (h *Hub) generateCode() string {
 		b[i] = alph[n.Int64()]
 	}
 	return string(b)
+}
+
+func (h *Hub) AddGlobalSSEClient(c *GlobalSSEClient) {
+	h.globalSSEMu.Lock()
+	h.globalSSEClients[c] = struct{}{}
+	h.globalSSEMu.Unlock()
+}
+
+func (h *Hub) RemoveGlobalSSEClient(c *GlobalSSEClient) {
+	h.globalSSEMu.Lock()
+	delete(h.globalSSEClients, c)
+	h.globalSSEMu.Unlock()
+	close(c.done)
+}
+
+func (h *Hub) BroadcastGlobal(event string, data any) {
+	h.globalSSEMu.Lock()
+	defer h.globalSSEMu.Unlock()
+
+	payload, _ := json.Marshal(data)
+	for client := range h.globalSSEClients {
+		fmt.Fprintf(client.w, "event: %s\ndata: %s\n\n", event, string(payload))
+		client.flusher.Flush()
+	}
+}
+
+func (h *Hub) BroadcastMatchAvailable(roomCode string, difficulty int) {
+	h.BroadcastGlobal("match_available", map[string]any{"room_code": roomCode, "difficulty": difficulty})
+}
+
+func (h *Hub) BroadcastMatchStarted(roomCode string) {
+	h.BroadcastGlobal("match_started", map[string]any{"room_code": roomCode})
+}
+
+func (h *Hub) BroadcastMatchEnded(roomCode string) {
+	h.BroadcastGlobal("match_ended", map[string]any{"room_code": roomCode})
 }
 
 // Shutdown notifies all connected players of server shutdown,

@@ -90,8 +90,8 @@ func TestDisconnectNotification(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected message within 5s: %v", err)
 	}
-	if msgType != MsgTypeOpponentLeft {
-		t.Errorf("expected opponent_left, got %s", msgType)
+	if msgType != MsgTypeOpponentLeft && msgType != MsgTypePlayerDisconnected {
+		t.Errorf("expected opponent_left or player_disconnected, got %s", msgType)
 	}
 }
 
@@ -231,7 +231,7 @@ func TestInputAffectsTankPosition(t *testing.T) {
 }
 
 func TestRoomExpiry(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(0)
 
 	room := hub.CreateRoom(5)
 	roomCode := room.Code
@@ -245,4 +245,81 @@ func TestRoomExpiry(t *testing.T) {
 	if hub.GetRoom(roomCode) != nil {
 		t.Error("expected stale room to be cleaned up")
 	}
+}
+
+func TestSpectatorJoinAndReceiveTicks(t *testing.T) {
+	srv, _ := setupTestServer(t)
+	defer srv.Close()
+
+	c1, c2, roomCode, _, _ := setupStartedMatch(t, srv.URL, 5, "Alice", "Bob")
+	defer c1.closeNow()
+	defer c2.closeNow()
+
+	_ = decodeRaw[TickMsg](t, c1.recvUntil(MsgTypeTick, 120))
+
+	spec := newE2EClient(t, srv.URL)
+	defer spec.closeNow()
+
+	spec.send(MsgTypeSpectate, SpectateMsg{RoomCode: roomCode})
+
+	joinedMsg := decodeRaw[SpectatorJoinedMsg](t, spec.recvExpect(MsgTypeSpectatorJoined))
+	if joinedMsg.SpectatorCount < 1 {
+		t.Fatalf("spectator count = %d, want >= 1", joinedMsg.SpectatorCount)
+	}
+
+	// CRITICAL: spectator must receive game_start with YourPlayerID=0,
+	// otherwise the WASM client treats itself as Player 1 and predicts barrel/movement
+	// for the actual player (the bug fixed in v0.9.12).
+	gsMsg := decodeRaw[GameStartMsg](t, spec.recvUntil(MsgTypeGameStart, 30))
+	if gsMsg.YourPlayerID != 0 {
+		t.Fatalf("spectator GameStart YourPlayerID = %d, want 0 (spectator marker)", gsMsg.YourPlayerID)
+	}
+
+	msgType, _, err := spec.recvWithTimeout(5 * time.Second)
+	if err != nil {
+		t.Fatalf("expected tick on spectator connection: %v", err)
+	}
+	if msgType != MsgTypeTick && msgType != MsgTypeTickDelta {
+		t.Fatalf("expected tick/tick_delta on spectator after game_start, got %s", msgType)
+	}
+
+	spec.send(MsgTypeInput, InputMsg{Tick: 1, Key: "right", Action: "down"})
+	errMsg := decodeRaw[ErrorMsg](t, spec.recvUntil(MsgTypeError, 30))
+	if errMsg.Code != ErrCodeReadOnly {
+		t.Fatalf("expected read_only error for spectator input, got code=%q message=%q", errMsg.Code, errMsg.Message)
+	}
+}
+
+func TestReconnectFlow(t *testing.T) {
+	srv, handler := setupTestServer(t)
+	defer srv.Close()
+
+	c1, c2, roomCode, _, _ := setupStartedMatch(t, srv.URL, 5, "Alice", "Bob")
+	defer c1.closeNow()
+
+	_ = decodeRaw[TickMsg](t, c1.recvUntil(MsgTypeTick, 120))
+
+	c2.closeNow()
+
+	msgType, _, err := c1.recvWithTimeout(5 * time.Second)
+	if err != nil {
+		t.Fatalf("expected message after P2 disconnect: %v", err)
+	}
+	if msgType != MsgTypePlayerDisconnected && msgType != MsgTypeOpponentLeft {
+		t.Fatalf("expected player_disconnected or opponent_left, got %s", msgType)
+	}
+
+	room := handler.Hub.GetRoom(roomCode)
+	if room == nil {
+		t.Fatal("room should still exist during reconnect window")
+	}
+	if room.GetState() != RoomWaitingReconnect {
+		t.Fatalf("room state = %d, want RoomWaitingReconnect(%d)", room.GetState(), RoomWaitingReconnect)
+	}
+
+	c1.closeNow()
+
+	waitForCondition(t, 5*time.Second, func() bool {
+		return handler.Hub.RoomCount() == 0 || handler.Hub.GetRoom(roomCode) == nil || handler.Hub.GetRoom(roomCode).GetState() == RoomClosed
+	}, "room cleaned up after both players disconnect during reconnect")
 }

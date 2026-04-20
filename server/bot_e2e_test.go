@@ -18,7 +18,7 @@ func setupTestServerWithBot(t *testing.T) (*httptest.Server, *WSHandler, *BotMan
 	os.Setenv("TANK_ENABLE_BOTS", "1")
 	defer os.Setenv("TANK_ENABLE_BOTS", origEnv)
 
-	hub := NewHub()
+	hub := NewHub(0)
 	tokens := NewTokenStore()
 	handler := NewWSHandler(hub, tokens, nil, 0)
 
@@ -27,7 +27,7 @@ func setupTestServerWithBot(t *testing.T) (*httptest.Server, *WSHandler, *BotMan
 
 	serverAddr := strings.TrimPrefix(ts.URL, "http://")
 
-	botManager := NewBotManager(hub, handler, tokens, serverAddr)
+	botManager := NewBotManager(hub, handler, tokens, serverAddr, 20)
 
 	return ts, handler, botManager
 }

@@ -1,5 +1,21 @@
 ## Changelog
 
+### 1.2.0 - 2026-04-20 — Security hardening Phase 2
+
+Phase 2 of the security mitigation plan (B4, B5, B6, S3, S4, S5, S7):
+
+- **B4: pprof import removed** — `_ "net/http/pprof"` gone from main.go; `-pprof-addr` flag replaced with `-debug-addr` (dev-only, no auth)
+- **B5: WebSocket connection cap** — `-max-conns` flag (default 1000); atomic counter rejects with 503 when limit reached
+- **B6: HTTP rate limiting** — Per-IP `golang.org/x/time/rate` middleware; `-rate-requests` (5/s) and `-rate-burst` (10) flags; bot subprocess cap (`-max-bots`, default 20); `ExtractIP` helper respects `X-Forwarded-For`
+- **S3: Hub room count cap** — `-max-rooms` flag (default 500); `CreateRoom`/`CreateRoomWithBotPolicy` return nil when cap reached; `CleanupStaleRooms` now also evicts `RoomGameOver` rooms past maxAge
+- **S4: AutoFill timer cancellation** — `CleanupStaleRooms` calls `CancelBotReservation()` before deleting; `auto_fill_after_sec` validated ≤ 300
+- **S5: Max match duration** — `MaxMatchTicks = 36000` (10 min @ 60 Hz); `MatchController.stepTick` force-stops and emits `GameOverMsg{Winner: 0}` on timeout
+- **S7: Room code enumeration protection** — `handleRoomStatus` returns generic 404 for missing, full, playing, game-over, and closed rooms
+
+New dependency: `golang.org/x/time v0.7.0` (rate limiter)
+`NewHub` signature changed: now takes `maxRooms int`
+`NewBotManager` signature changed: now takes `maxBots int`
+
 ### 1.1.0 - 2026-04-20 — Security hardening Phase 1
 
 Phase 1 of the security mitigation plan (B1, B2, B3, N3, S1, S2, S6):

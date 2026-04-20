@@ -8,6 +8,9 @@ import (
 	"github.com/FirebirdRender/CommodorePet_TANK/engine"
 )
 
+// MaxMatchTicks is the maximum number of ticks before a match is force-ended (10 minutes at 60 Hz).
+const MaxMatchTicks uint64 = 36000
+
 type MatchState int
 
 const (
@@ -21,19 +24,24 @@ const (
 type MatchEvent interface {
 	OnTick(tick uint64, state *TickMsg)
 	OnTickDelta(tick uint64, state *TickDeltaMsg)
+	OnTickSpectator(tick uint64, state *TickMsg)
+	OnTickDeltaSpectator(tick uint64, state *TickDeltaMsg)
 	OnRoundOver(msg *RoundOverMsg)
 	OnGameOver(msg *GameOverMsg)
 }
 
 type MatchController struct {
-	gc         *engine.GameController
-	inputs     [2]*InputTracker
-	tick       uint64
-	state      MatchState
-	events     MatchEvent
-	difficulty int
-	seed       int64
-	delta      *DeltaTracker
+	gc            *engine.GameController
+	inputs        [2]*InputTracker
+	tick          uint64
+	state         MatchState
+	events        MatchEvent
+	difficulty    int
+	seed          int64
+	delta         *DeltaTracker
+	player1Skill  int
+	player2Skill  int
+	maxMatchTicks uint64
 
 	roundOverAt     uint64
 	roundPauseTicks uint64
@@ -60,10 +68,18 @@ func NewMatchController(difficulty int, seed int64, events MatchEvent) *MatchCon
 		delta:           NewDeltaTracker(),
 		roundPauseTicks: 120,
 		stopCh:          make(chan struct{}),
+		player1Skill:    0,
+		player2Skill:    0,
+		maxMatchTicks:   MaxMatchTicks,
 	}
 	mc.inputs[0].SetPlayerID(1)
 	mc.inputs[1].SetPlayerID(2)
 	return mc
+}
+
+func (mc *MatchController) SetPlayerSkills(p1, p2 int) {
+	mc.player1Skill = p1
+	mc.player2Skill = p2
 }
 
 func (mc *MatchController) Start() {
@@ -144,6 +160,21 @@ func (mc *MatchController) stepTick() {
 
 	mc.mu.Lock()
 	mc.tick++
+
+	// S5: Max match duration — force end on timeout
+	if mc.state == MatchRunning && mc.maxMatchTicks > 0 && mc.tick >= mc.maxMatchTicks {
+		mc.mu.Unlock()
+		mc.Stop()
+		if mc.events != nil {
+			gameOverMsg = &GameOverMsg{
+				Winner:       0,
+				FinalWins:    mc.gc.Wins,
+				TotalBattles: mc.gc.BattlesPlayed,
+			}
+			mc.emitGameOver(gameOverMsg)
+		}
+		return
+	}
 
 	if mc.state == MatchRoundOver {
 		if mc.tick-mc.roundOverAt >= mc.roundPauseTicks {
@@ -232,6 +263,7 @@ func (mc *MatchController) broadcastTick() {
 		// Send full keyframe
 		mc.mu.Unlock()
 		mc.emitTick(tick, fullMsg)
+		mc.emitTickSpectator(tick, fullMsg)
 		mc.delta.UpdateState(fullMsg.Grid)
 	} else {
 		// Compute delta
@@ -249,6 +281,7 @@ func (mc *MatchController) broadcastTick() {
 			BarrelHitBodies: fullMsg.BarrelHitBodies,
 		}
 		mc.emitTickDelta(tick, deltaMsg)
+		mc.emitTickDeltaSpectator(tick, deltaMsg)
 		mc.delta.UpdateState(fullMsg.Grid)
 	}
 }
@@ -278,6 +311,8 @@ func (mc *MatchController) buildTickMsgLocked() *TickMsg {
 		Explosions:      explosions,
 		BarrelWreckage:  BarrelWreckageFromEngine(mc.gc.BarrelWreckageRegistry),
 		BarrelHitBodies: BarrelHitBodiesFromEngine(mc.gc.BarrelHitBodies),
+		Player1Skill:    mc.player1Skill,
+		Player2Skill:    mc.player2Skill,
 	}
 }
 
@@ -287,9 +322,21 @@ func (mc *MatchController) emitTick(tick uint64, msg *TickMsg) {
 	}
 }
 
+func (mc *MatchController) emitTickSpectator(tick uint64, msg *TickMsg) {
+	if mc.events != nil {
+		mc.events.OnTickSpectator(tick, msg)
+	}
+}
+
 func (mc *MatchController) emitTickDelta(tick uint64, msg *TickDeltaMsg) {
 	if mc.events != nil {
 		mc.events.OnTickDelta(tick, msg)
+	}
+}
+
+func (mc *MatchController) emitTickDeltaSpectator(tick uint64, msg *TickDeltaMsg) {
+	if mc.events != nil {
+		mc.events.OnTickDeltaSpectator(tick, msg)
 	}
 }
 
@@ -299,8 +346,14 @@ func (mc *MatchController) emitRoundOver(msg *RoundOverMsg) {
 	}
 }
 
+func (mc *MatchController) emitRoundOverSpectator(msg *RoundOverMsg) {
+}
+
 func (mc *MatchController) emitGameOver(msg *GameOverMsg) {
 	if mc.events != nil {
 		mc.events.OnGameOver(msg)
 	}
+}
+
+func (mc *MatchController) emitGameOverSpectator(msg *GameOverMsg) {
 }

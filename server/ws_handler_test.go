@@ -14,7 +14,7 @@ import (
 func setupTestServer(t *testing.T) (*httptest.Server, *WSHandler) {
 	t.Helper()
 
-	hub := NewHub()
+	hub := NewHub(0)
 	tokens := NewTokenStore()
 	handler := NewWSHandler(hub, tokens, nil, 0)
 	ts := httptest.NewServer(handler)

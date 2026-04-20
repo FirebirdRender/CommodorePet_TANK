@@ -10,10 +10,10 @@ func TestBotManager_IsEnabledTrueWhenEnvSet(t *testing.T) {
 	os.Setenv("TANK_ENABLE_BOTS", "1")
 	defer os.Setenv("TANK_ENABLE_BOTS", orig)
 
-	hub := NewHub()
+	hub := NewHub(0)
 	tokens := NewTokenStore()
 	handler := NewWSHandler(hub, tokens, nil, 0)
-	bm := NewBotManager(hub, handler, tokens, "localhost:8080")
+	bm := NewBotManager(hub, handler, tokens, "localhost:8080", 20)
 
 	if !bm.IsEnabled() {
 		t.Fatal("expected bot mode to be enabled when TANK_ENABLE_BOTS=1")
@@ -25,10 +25,10 @@ func TestBotManager_IsEnabledFalseWhenEnvNotSet(t *testing.T) {
 	os.Unsetenv("TANK_ENABLE_BOTS")
 	defer os.Setenv("TANK_ENABLE_BOTS", orig)
 
-	hub := NewHub()
+	hub := NewHub(0)
 	tokens := NewTokenStore()
 	handler := NewWSHandler(hub, tokens, nil, 0)
-	bm := NewBotManager(hub, handler, tokens, "localhost:8080")
+	bm := NewBotManager(hub, handler, tokens, "localhost:8080", 20)
 
 	if bm.IsEnabled() {
 		t.Fatal("expected bot mode to be disabled when TANK_ENABLE_BOTS is not set")
@@ -36,10 +36,10 @@ func TestBotManager_IsEnabledFalseWhenEnvNotSet(t *testing.T) {
 }
 
 func TestBotManager_AssignBotToNonExistentRoom(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(0)
 	tokens := NewTokenStore()
 	handler := NewWSHandler(hub, tokens, nil, 0)
-	bm := NewBotManager(hub, handler, tokens, "localhost:8080")
+	bm := NewBotManager(hub, handler, tokens, "localhost:8080", 20)
 
 	err := bm.AssignBotToRoom("NONEXISTENT", "test")
 	if err == nil {
@@ -48,19 +48,19 @@ func TestBotManager_AssignBotToNonExistentRoom(t *testing.T) {
 }
 
 func TestBotManager_ReleaseBotNonExistent(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(0)
 	tokens := NewTokenStore()
 	handler := NewWSHandler(hub, tokens, nil, 0)
-	bm := NewBotManager(hub, handler, tokens, "localhost:8080")
+	bm := NewBotManager(hub, handler, tokens, "localhost:8080", 20)
 
 	bm.ReleaseBot("NONEXISTENT")
 }
 
 func TestBotManager_HealthSnapshot(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(0)
 	tokens := NewTokenStore()
 	handler := NewWSHandler(hub, tokens, nil, 0)
-	bm := NewBotManager(hub, handler, tokens, "localhost:8080")
+	bm := NewBotManager(hub, handler, tokens, "localhost:8080", 20)
 
 	snapshot := bm.HealthSnapshot()
 	if snapshot["enabled"] != "false" {

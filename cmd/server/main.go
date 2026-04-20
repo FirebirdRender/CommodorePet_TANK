@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/FirebirdRender/CommodorePet_TANK/server"
+	"golang.org/x/time/rate"
 )
 
 func main() {
@@ -23,6 +24,10 @@ func main() {
 	maxRoomAge := flag.Duration("max-room-age", 30*time.Minute, "stale room cleanup interval")
 	allowedOrigins := flag.String("allowed-origins", "", "comma-separated WebSocket origin patterns (host-only, e.g. 'localhost:8080,*.example.com'); empty = allow all (dev only)")
 	maxConns := flag.Int64("max-conns", 1000, "maximum concurrent WebSocket connections (0 = unlimited)")
+	maxRooms := flag.Int("max-rooms", 500, "maximum concurrent rooms (0 = unlimited)")
+	maxBots := flag.Int("max-bots", 20, "maximum concurrent bot subprocesses (0 = unlimited)")
+	rateLimit := flag.Float64("rate-requests", 5, "API rate limit: requests per second per IP")
+	rateBurst := flag.Int("rate-burst", 10, "API rate limit: burst size per IP")
 	debugAddr := flag.String("debug-addr", "", "debug pprof address (dev only, no auth)")
 	flag.Parse()
 
@@ -44,14 +49,14 @@ func main() {
 		}
 	}
 
-	hub := server.NewHub()
+	hub := server.NewHub(*maxRooms)
 	tokens := server.NewTokenStore()
 	handler := server.NewWSHandler(hub, tokens, originPatterns, *maxConns)
 	roomAPI := server.NewRoomAPI(hub, handler.Registry(), tokens, *cors)
 	roomAPI.SetStaticDir(*dir)
 
 	serverAddr := "localhost:" + resolvedPort
-	botManager := server.NewBotManager(hub, handler, tokens, serverAddr)
+	botManager := server.NewBotManager(hub, handler, tokens, serverAddr, *maxBots)
 	roomAPI.SetBotManager(botManager)
 
 	if botManager.IsEnabled() {
@@ -71,8 +76,14 @@ func main() {
 	fileHandler := server.WASMNoCacheMiddleware(http.FileServer(http.Dir(*dir)))
 	mux.Handle("/", fileHandler)
 
-	// Order: CORS → SecurityHeaders → final handler
-	wrappedMux := server.SecurityHeadersMiddleware(server.CORSMiddleware(*cors, mux))
+	rateLimiter := server.NewRateLimiter(rate.Limit(*rateLimit), *rateBurst)
+
+	// Order: RateLimit → CORS → SecurityHeaders → mux
+	wrappedMux := rateLimiter.Middleware(
+		server.SecurityHeadersMiddleware(
+			server.CORSMiddleware(*cors, mux),
+		),
+	)
 
 	srv := &http.Server{
 		Handler:      wrappedMux,

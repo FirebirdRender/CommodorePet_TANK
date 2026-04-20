@@ -90,7 +90,7 @@ func TestOriginAllowed(t *testing.T) {
 }
 
 func TestRequestTooLarge(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(0)
 	ts := NewTokenStore()
 	reg := NewConnRegistry()
 	api := NewRoomAPI(hub, reg, ts, "*")

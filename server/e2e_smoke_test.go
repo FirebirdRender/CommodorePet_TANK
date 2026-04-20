@@ -118,7 +118,7 @@ func TestSmoke_InvalidInputRejected(t *testing.T) {
 
 // TestSmoke_UnambiguousRoomCodes: verify 100 generated codes have no I/L/O/0/1
 func TestSmoke_UnambiguousRoomCodes(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(0)
 	ambiguous := "ILO01"
 	for i := 0; i < 100; i++ {
 		code := hub.generateCode()

@@ -10,14 +10,14 @@ import (
 var roomCodeRe = regexp.MustCompile(`^[A-Z2-9]{4}$`)
 
 func TestNewHubStartsEmpty(t *testing.T) {
-	h := NewHub()
+	h := NewHub(0)
 	if got := h.RoomCount(); got != 0 {
 		t.Fatalf("expected empty hub, got %d rooms", got)
 	}
 }
 
 func TestCreateRoomReturnsValidRoom(t *testing.T) {
-	h := NewHub()
+	h := NewHub(0)
 	r := h.CreateRoom(7)
 	if r == nil {
 		t.Fatal("expected room, got nil")
@@ -31,7 +31,7 @@ func TestCreateRoomReturnsValidRoom(t *testing.T) {
 }
 
 func TestCreateRoomGeneratesUniqueCodes(t *testing.T) {
-	h := NewHub()
+	h := NewHub(0)
 	seen := make(map[string]struct{}, 50)
 
 	for range 50 {
@@ -47,7 +47,7 @@ func TestCreateRoomGeneratesUniqueCodes(t *testing.T) {
 }
 
 func TestGetRoomReturnsCorrectRoomByCode(t *testing.T) {
-	h := NewHub()
+	h := NewHub(0)
 	r := h.CreateRoom(5)
 	if r == nil {
 		t.Fatal("expected room, got nil")
@@ -60,14 +60,14 @@ func TestGetRoomReturnsCorrectRoomByCode(t *testing.T) {
 }
 
 func TestGetRoomReturnsNilForUnknownCode(t *testing.T) {
-	h := NewHub()
+	h := NewHub(0)
 	if got := h.GetRoom("ZZZZ"); got != nil {
 		t.Fatalf("expected nil for unknown room code, got %+v", got)
 	}
 }
 
 func TestRemoveRoomDeletesRoom(t *testing.T) {
-	h := NewHub()
+	h := NewHub(0)
 	r := h.CreateRoom(4)
 	if r == nil {
 		t.Fatal("expected room, got nil")
@@ -80,7 +80,7 @@ func TestRemoveRoomDeletesRoom(t *testing.T) {
 }
 
 func TestRoomCountReflectsAdditionsAndRemovals(t *testing.T) {
-	h := NewHub()
+	h := NewHub(0)
 	r1 := h.CreateRoom(1)
 	r2 := h.CreateRoom(2)
 	if r1 == nil || r2 == nil {
@@ -98,7 +98,7 @@ func TestRoomCountReflectsAdditionsAndRemovals(t *testing.T) {
 }
 
 func TestCleanupStaleRoomsRemovesClosedRooms(t *testing.T) {
-	h := NewHub()
+	h := NewHub(0)
 	r := h.CreateRoom(2)
 	if r == nil {
 		t.Fatal("expected room, got nil")
@@ -112,7 +112,7 @@ func TestCleanupStaleRoomsRemovesClosedRooms(t *testing.T) {
 }
 
 func TestCleanupStaleRoomsRemovesStaleWaitingRooms(t *testing.T) {
-	h := NewHub()
+	h := NewHub(0)
 	r := h.CreateRoom(2)
 	if r == nil {
 		t.Fatal("expected room, got nil")
@@ -129,7 +129,7 @@ func TestCleanupStaleRoomsRemovesStaleWaitingRooms(t *testing.T) {
 }
 
 func TestCleanupStaleRoomsDoesNotRemoveActiveRooms(t *testing.T) {
-	h := NewHub()
+	h := NewHub(0)
 	playing := h.CreateRoom(2)
 	ready := h.CreateRoom(3)
 	if playing == nil || ready == nil {
@@ -158,7 +158,7 @@ func TestCleanupStaleRoomsDoesNotRemoveActiveRooms(t *testing.T) {
 }
 
 func TestCreateRoomConcurrent(t *testing.T) {
-	h := NewHub()
+	h := NewHub(0)
 
 	const goroutines = 10
 	var wg sync.WaitGroup
@@ -192,7 +192,7 @@ func TestCreateRoomConcurrent(t *testing.T) {
 }
 
 func TestRoomCodeFormatValidation(t *testing.T) {
-	h := NewHub()
+	h := NewHub(0)
 	for range 100 {
 		code := h.generateCode()
 		if !roomCodeRe.MatchString(code) {
@@ -202,7 +202,7 @@ func TestRoomCodeFormatValidation(t *testing.T) {
 }
 
 func TestHubShutdownNotifiesClients(t *testing.T) {
-	hub := NewHub()
+	hub := NewHub(0)
 	registry := NewConnRegistry()
 
 	room := hub.CreateRoom(5)

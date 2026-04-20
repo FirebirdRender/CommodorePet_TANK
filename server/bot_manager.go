@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,27 +20,29 @@ type BotAssignment struct {
 }
 
 type BotManager struct {
-	hub        *Hub
-	handler    *WSHandler
-	tokens     *TokenStore
-	serverAddr string
-	enabled    bool
-	botBinary  string
+	hub               *Hub
+	handler           *WSHandler
+	tokens            *TokenStore
+	serverAddr        string
+	enabled           bool
+	botBinary         string
+	maxConcurrentBots int
 
 	mu     sync.Mutex
 	active map[string]*BotAssignment
 }
 
-func NewBotManager(hub *Hub, handler *WSHandler, tokens *TokenStore, serverAddr string) *BotManager {
+func NewBotManager(hub *Hub, handler *WSHandler, tokens *TokenStore, serverAddr string, maxBots int) *BotManager {
 	enabled := os.Getenv("TANK_ENABLE_BOTS") == "1"
 	return &BotManager{
-		hub:        hub,
-		handler:    handler,
-		tokens:     tokens,
-		serverAddr: serverAddr,
-		enabled:    enabled,
-		botBinary:  resolveBotBinary(),
-		active:     make(map[string]*BotAssignment),
+		hub:               hub,
+		handler:           handler,
+		tokens:            tokens,
+		serverAddr:        serverAddr,
+		enabled:           enabled,
+		botBinary:         resolveBotBinary(),
+		maxConcurrentBots: maxBots,
+		active:            make(map[string]*BotAssignment),
 	}
 }
 
@@ -82,6 +85,11 @@ func (bm *BotManager) AssignBotToRoomAt(roomCode string, slot int, botClass stri
 		return fmt.Errorf("bot mode not available")
 	}
 
+	// B6: Concurrent bot subprocess cap
+	if bm.maxConcurrentBots > 0 && bm.ConcurrentBotCount() >= bm.maxConcurrentBots {
+		return fmt.Errorf("bot subprocess limit reached")
+	}
+
 	if slot < 0 || slot > 1 {
 		return fmt.Errorf("invalid slot %d", slot)
 	}
@@ -101,7 +109,8 @@ func (bm *BotManager) AssignBotToRoomAt(roomCode string, slot int, botClass stri
 		botName = fmt.Sprintf("CPU%d-%s", slot+1, botClass)
 	}
 
-	playerID, err := room.AddBotPlayerAt(slot, botName, botID, botClass)
+	skill := rand.IntN(10)
+	playerID, err := room.AddBotPlayerAt(slot, botName, botID, botClass, skill)
 	if err != nil {
 		room.CancelBotReservationAt(slot)
 		return fmt.Errorf("add bot player: %w", err)
@@ -205,4 +214,10 @@ func (bm *BotManager) HealthSnapshot() map[string]string {
 		"active_bots": fmt.Sprintf("%d", len(bm.active)),
 		"bot_binary":  bm.botBinary,
 	}
+}
+
+func (bm *BotManager) ConcurrentBotCount() int {
+	bm.mu.Lock()
+	defer bm.mu.Unlock()
+	return len(bm.active)
 }

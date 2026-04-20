@@ -75,6 +75,12 @@ func (api *RoomAPI) handleCreateRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// S4: Validate auto-fill timeout cap
+	if req.AutoFillBot && req.AutoFillAfterSec > 300 {
+		http.Error(w, "auto_fill_after_sec must be ≤ 300", http.StatusBadRequest)
+		return
+	}
+
 	if err := validateDifficulty(req.Difficulty); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -233,8 +239,10 @@ func (api *RoomAPI) handleJoinRoom(w http.ResponseWriter, r *http.Request, code 
 
 func (api *RoomAPI) handleRoomStatus(w http.ResponseWriter, r *http.Request, code string) {
 	room := api.hub.GetRoom(code)
-	if room == nil {
-		http.Error(w, "Room not found", http.StatusNotFound)
+
+	// S7: Return generic error for missing and non-joinable rooms
+	if room == nil || room.IsFull() || room.GetState() == RoomPlaying || room.GetState() == RoomGameOver || room.GetState() == RoomClosed {
+		http.Error(w, "Invalid room code", http.StatusNotFound)
 		return
 	}
 

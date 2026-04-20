@@ -1,8 +1,12 @@
 package server
 
 import (
+	"net"
 	"net/http"
 	"strings"
+	"sync"
+
+	"golang.org/x/time/rate"
 )
 
 // CORSMiddleware adds CORS headers for browser WASM clients.
@@ -44,6 +48,57 @@ func OriginAllowed(origin string, allowedOrigins []string) bool {
 		}
 	}
 	return false
+}
+
+// B6: Rate limiter middleware
+type RateLimiter struct {
+	mu       sync.Mutex
+	limiters map[string]*rate.Limiter
+	r        rate.Limit
+	b        int
+}
+
+func NewRateLimiter(r rate.Limit, b int) *RateLimiter {
+	return &RateLimiter{
+		limiters: make(map[string]*rate.Limiter),
+		r:        r,
+		b:        b,
+	}
+}
+
+func (rl *RateLimiter) getLimiter(ip string) *rate.Limiter {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	limiter, exists := rl.limiters[ip]
+	if !exists {
+		limiter = rate.NewLimiter(rl.r, rl.b)
+		rl.limiters[ip] = limiter
+	}
+	return limiter
+}
+
+func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip := ExtractIP(r)
+		if !rl.getLimiter(ip).Allow() {
+			http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// ExtractIP returns the client IP from X-Forwarded-For or RemoteAddr.
+func ExtractIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		ips := strings.SplitN(xff, ",", 2)
+		return strings.TrimSpace(ips[0])
+	}
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 // WASMNoCacheMiddleware sets no-cache headers for .wasm and .js files
