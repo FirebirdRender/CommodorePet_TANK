@@ -1,4 +1,4 @@
-.PHONY: wasm wasm-size serve dev copy-font copy-wasm-exec copy-web-fonts clean server bot build-all test test-e2e test-wasm test-headless test-all
+.PHONY: wasm wasm-size serve dev copy-font copy-wasm-exec copy-web-fonts clean server bot build-all test test-e2e test-wasm test-headless test-all govulncheck
 
 copy-font:
 	@true  # font embedded via internal/assets/fonts/PetMe64.ttf — no copy needed
@@ -52,6 +52,9 @@ test-e2e: build-all
 
 test-all: test test-headless test-e2e
 	@echo "All test suites complete."
+
+govulncheck:
+	go install golang.org/x/vuln/cmd/govulncheck@latest && govulncheck ./...
 
 clean:
 	rm -f web/game.wasm

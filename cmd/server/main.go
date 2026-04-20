@@ -79,6 +79,7 @@ func main() {
 	rateLimiter := server.NewRateLimiter(rate.Limit(*rateLimit), *rateBurst)
 
 	// Order: RateLimit → CORS → SecurityHeaders → mux
+	// N4: Server-level WriteTimeout (300s) caps API responses; SSE/WS have own timeouts
 	wrappedMux := rateLimiter.Middleware(
 		server.SecurityHeadersMiddleware(
 			server.CORSMiddleware(*cors, mux),

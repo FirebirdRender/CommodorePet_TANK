@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -34,13 +35,17 @@ type BotManager struct {
 
 func NewBotManager(hub *Hub, handler *WSHandler, tokens *TokenStore, serverAddr string, maxBots int) *BotManager {
 	enabled := os.Getenv("TANK_ENABLE_BOTS") == "1"
+	binary, err := resolveBotBinary()
+	if err != nil {
+		log.Fatalf("[bot] failed to resolve binary: %v", err)
+	}
 	return &BotManager{
 		hub:               hub,
 		handler:           handler,
 		tokens:            tokens,
 		serverAddr:        serverAddr,
 		enabled:           enabled,
-		botBinary:         resolveBotBinary(),
+		botBinary:         binary,
 		maxConcurrentBots: maxBots,
 		active:            make(map[string]*BotAssignment),
 	}
@@ -50,15 +55,21 @@ func (bm *BotManager) IsEnabled() bool {
 	return bm.enabled
 }
 
-// resolveBotBinary picks the tank-bot executable in the following order:
-//  1. TANK_BOT_BIN env var (explicit override)
-//  2. Same directory as the running server binary
-//  3. ./bin/tank-bot relative to the working directory
-//
-// On Windows, ".exe" is appended automatically by exec.LookPath when needed.
-func resolveBotBinary() string {
+// resolveBotBinary picks and validates the tank-bot executable.
+// Returns an error for invalid paths (relative, traversal, outside allowed dirs).
+func resolveBotBinary() (string, error) {
 	if env := os.Getenv("TANK_BOT_BIN"); env != "" {
-		return env
+		if !filepath.IsAbs(env) {
+			return "", fmt.Errorf("TANK_BOT_BIN must be absolute path, got: %s", env)
+		}
+		resolved, err := filepath.EvalSymlinks(env)
+		if err != nil {
+			return "", fmt.Errorf("TANK_BOT_BIN: %w", err)
+		}
+		if !isAllowedBotPath(resolved) {
+			return "", fmt.Errorf("TANK_BOT_BIN must be in allowed directories: %s", resolved)
+		}
+		return resolved, nil
 	}
 
 	exe, err := os.Executable()
@@ -66,14 +77,30 @@ func resolveBotBinary() string {
 		dir := filepath.Dir(exe)
 		candidate := filepath.Join(dir, "tank-bot")
 		if _, err := os.Stat(candidate); err == nil {
-			return candidate
+			return candidate, nil
 		}
 		if _, err := os.Stat(candidate + ".exe"); err == nil {
-			return candidate + ".exe"
+			return candidate + ".exe", nil
 		}
 	}
 
-	return filepath.Join("bin", "tank-bot")
+	fallback := filepath.Join("bin", "tank-bot")
+	return fallback, nil
+}
+
+func isAllowedBotPath(path string) bool {
+	cwd, _ := os.Getwd()
+	allowList := []string{
+		filepath.Join(cwd, "bin"),
+		filepath.Dir(os.Args[0]),
+	}
+	for _, allow := range allowList {
+		rel, err := filepath.Rel(allow, path)
+		if err == nil && !strings.HasPrefix(rel, "..") && rel != ".." {
+			return true
+		}
+	}
+	return false
 }
 
 func (bm *BotManager) AssignBotToRoom(roomCode string, botClass string) error {

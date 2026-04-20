@@ -1,5 +1,14 @@
 ## Changelog
 
+### 1.3.0 - 2026-04-20 — Security hardening Phase 3
+
+Phase 3 of the security mitigation plan (B7, S8, N4, N5):
+
+- **B7: Bot binary path validation** — `TANK_BOT_BIN` must be absolute; `resolveBotBinary` validates no path traversal via `filepath.EvalSymlinks` + allow-list; startup fails if invalid
+- **S8: lagproxy build tag** — `cmd/lagproxy/main.go` now has `//go:build dev` tag; excluded from production builds
+- **N4: API timeout** — Server-level `WriteTimeout: 300s` caps API responses; SSE/WS have their own timeouts; documented in middleware chain comment
+- **N5: govulncheck Makefile target** — `make govulncheck` installs and runs `govulncheck ./...`
+
 ### 1.2.0 - 2026-04-20 — Security hardening Phase 2
 
 Phase 2 of the security mitigation plan (B4, B5, B6, S3, S4, S5, S7):
