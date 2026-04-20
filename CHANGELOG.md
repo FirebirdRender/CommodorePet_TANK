@@ -1,5 +1,104 @@
 ## Changelog
 
+### 1.0.0 - 2026-04-20 — Go/WASM finalization: Python codebase removed
+
+**Breaking change:** The Python/PyGame codebase (`tank_game/`, `tests/`, `pyproject.toml`) has been fully removed. The project is now exclusively Go/WASM. All Python dependencies, build files, test frameworks, and documentation have been cleaned up.
+
+**Removed (git-tracked):**
+- `tank_game/` — entire Python/PyGame source tree (14 `.py` files, font assets, `__pycache__`)
+- `tests/` — Python pytest suite (5 test files)
+- `pyproject.toml` — Python project definition (`tank-game-2p`)
+- `gameplay.analysis.md` — Python-era technical spec
+- `SECURITY_REPORT_041926.md` — root-level duplicate (kept in `docs/`)
+- `scripts/benchmark_headless_showdown_offline.py` — Python headless benchmark
+- `docs/PRD_AI_NAVIGATION.md`, `docs/PRD_py_trees_integration.md` — Python AI PRDs (replaced by Go bot AI)
+- `docs/PYGAME_QA_TESTING_SPEC.md` — PyGame QA spec (replaced by `go test`)
+- `docs/UI_RETRO_SPEC.md` — Python PETSCII retro spec (replaced by Go renderer)
+- `docs/FONTS/PetMe.ttf`, `docs/IMAGES/` — Python-only font copy and PyGame screenshots
+- `docs/tank-*.png`, `docs/tanks-*.png` — PyGame gameplay screenshots
+
+**Removed (local-only):**
+- `.venv/` (208 MB Python virtualenv)
+- `tank_game_2p.egg-info/`, `.pytest_cache/`, `.ruff_cache/`
+- Build artifacts: `tank-bot-1.00`, `tank-server-1.00`, `lagproxy`, `client_bin`, `server_bin`, `client.test`, `coverage.out`, `bot-load`, `cmd/server/server`
+- Dev screenshots (8 PNG verification images)
+
+**Fixed:**
+- `Makefile`: `copy-font` target no longer references deleted `tank_game/assets/fonts/` — font is embedded via `//go:embed` in `internal/assets/`
+- `Makefile`: `copy-web-fonts` target now copies from `internal/assets/fonts/PetMe64.ttf` instead of deleted `docs/FONTS/PetMe.ttf`
+
+**Verification:** `make clean && make build-all` passes. `go test -race ./... -count=1` passes. `go vet ./...` clean.
+
+**Bumped:** `AppVersion = "1.0.0"`, `VERSION = "1.0.0"`.
+
+### 0.9.13 - 2026-04-19 — Spectator UI overhaul + bot debug logging + match list SSE
+
+**Spectator page (web/spectate.html) rewritten and tuned:**
+
+- **HUD header fix.** Restored the separator cell layout to match the WASM client exactly — inverted `●` glyphs in cols 19-20, row 0-1; black glyphs on phosphor-green background; player panels use inverted rendering (black glyph, green bg) matching the original PET TANK! look.
+- **Status messages ported.** `THE WINNER`, `OUT OF SHOTS`, `LOW SHOTS`, `LAST TANK` now render as inverted glyphs in the playfield border row, exactly as the WASM client does.
+- **Canvas scaling.** Added `resizeCanvas()` with 90%-viewport scaling (no cap — scales up on large screens, down on small), centered in the viewport with `image-rendering: pixelated`.
+- **Per-bot random skill in HUD separator.** The two center-top separator cells now show each bot's skill level (0-9) as non-inverted digits. P1 skill at col 19, row 0; P2 skill at col 20, row 0. Bots with skill 0 display `●` (hidden, like a human player).
+
+**Bot debug logging (`cmd/bot-go/main.go`):**
+
+- New `-botdebug` flag (default off). When set, enables verbose per-tick bot decision logging (`[t270 dl n=270] me=(29,10) act=true ...`).
+- Disabled by default — eliminates continuous console spam from always-on bot matches.
+
+**Match list SSE wiring (`server/room_api.go`):**
+
+- Added `handleListRooms` (GET `/api/rooms?filter=playing|waiting`) returning JSON array of active rooms with code, difficulty, state, and player info.
+- Added `handleGlobalEvents` (GET `/api/events`) SSE stream for real-time lobby updates on match start/end.
+- Both wired into `RoomAPI.RegisterRoutes`.
+
+**Backend per-bot skill (`server/`):**
+
+- `Player.Skill` field added (0 for humans, 0-9 for bots).
+- `AddBotPlayerAt` now accepts `skill int` parameter.
+- `bot_manager.go` assigns `rand.IntN(10)` skill to each bot at spawn.
+- `MatchController` gains `player1Skill`/`player2Skill` + `SetPlayerSkills()`, populated by `startMatchForRoom` from `room.Players[].Skill`.
+- `TickMsg` gains `Player1Skill`/`Player2Skill` fields, sent every tick.
+
+**Verification:** `go test -race ./server -count=1` passes (71s). Playwright confirmed HUD separator cells rendering non-inverted digits for live bot skills.
+
+**Bumped:** `AppVersion = "0.9.13"`.
+
+**Bug fixes.** Five bugs reported against 0.9.11.
+
+**Bug 1 — Server hangs after SIGINT (`cmd/server/main.go`)**:
+
+- Root cause: signal handler closed WS conns + bot subprocs but never called `srv.Shutdown()`, leaving `srv.Serve(ln)` blocked forever.
+- Added `context` import and `srv.Shutdown(ctx)` with 10s timeout after `hub.Shutdown()`.
+
+**Bug 2 — Spectator input affecting Player 1 tank (`server/ws_handler.go`, `client/gamestate.go`, `client/bridge_js.go`, `client/game.go`)**:
+
+- Root cause: `handleSpectate` sent `GameStartState(1)` to spectators, so the WASM client's `ApplyGameStart` set `Phase = PhasePlaying` and `PlayerID = 1`, making the spectator's client believe it was Player 1. Local barrel-direction prediction then ran on Player 1's tank in the spectator's view.
+- `handleSpectate` now sends `GameStartState(0)` — `YourPlayerID == 0` is the spectator marker.
+- `ApplyGameStart` now branches on `YourPlayerID`: `0` → `PhaseSpectating`, non-zero → `PhasePlaying`.
+- Defense-in-depth: `window.sendInput` (bridge_js.go) early-returns when `g.isSpectator`; `Update()` input pump gated by `&& !g.isSpectator`.
+
+**Bug 2 — Tanks appear frozen after spectator joins (`server/ws_handler.go`)**:
+
+- Root cause: `RoomBridge.OnTickSpectator` iterated `rb.clients` (player conns only), filtering for `c.isSpectator == true`. Spectators are stored in `Room.spectatorConns`, not `rb.clients`, so spectators received zero ticks.
+- Added `room *Room` field to `RoomBridge`; spectator broadcast methods now call `rb.room.BroadcastToSpectators()`.
+
+**Bug 3 — Spectator stuck on game screen after match ends (`server/ws_handler.go`, `client/game.go`)**:
+
+- Root cause: `RoomBridge.OnGameOver` only iterated `rb.clients` — spectators never received `game_over`, leaving the spectator client frozen in `PhasePlaying`.
+- Server: `OnGameOver` now also calls `rb.room.BroadcastToSpectators(MsgTypeGameOver, ...)`.
+- Client: when `MsgTypeGameOver` arrives in spectator mode, switches to `PhaseWaitingReconnect` with a 5s `DisconnectCountdown` and a "PLAYER #N WINS - RETURNING TO LOBBY" message; existing countdown logic auto-redirects to lobby.
+
+**Bug 4 — ESC behavior in spectator mode (`client/game.go`)**:
+
+- ESC in `PhaseSpectating` now requires confirmation: first ESC sets `EscConfirmPending`, second ESC returns to lobby.
+- Per user requirement: "the only KEY INPUT that should be taken is ESC, which should ask for a confirmation, then leave spectating back to the menu".
+
+**Regression guard (`server/e2e_full_test.go`)**:
+
+- `TestSpectatorJoinAndReceiveTicks` now asserts `gsMsg.YourPlayerID == 0` with comment tying the assertion to the v0.9.12 fix.
+
+**Bumped:** `AppVersion = "0.9.12"`. Protocol unchanged (no new message types, no shape changes).
+
 ### 0.9.11 - 2026-04-19 — Test infrastructure completion (WAVE7 T3/T4, WAVE8 T6 gaps)
 
 **Testing.** Fills the remaining test infrastructure gaps identified in the WAVE7 and WAVE8 plan reviews.

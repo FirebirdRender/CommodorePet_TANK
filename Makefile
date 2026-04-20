@@ -1,12 +1,11 @@
 .PHONY: wasm wasm-size serve dev copy-font copy-wasm-exec copy-web-fonts clean server bot build-all test test-e2e test-wasm test-headless test-all
 
 copy-font:
-	@mkdir -p internal/assets/fonts
-	@cp tank_game/assets/fonts/PetMe64.ttf internal/assets/fonts/
+	@true  # font embedded via internal/assets/fonts/PetMe64.ttf — no copy needed
 
 copy-web-fonts:
 	@mkdir -p web/fonts
-	@cp docs/FONTS/PetMe.ttf web/fonts/PetMe.ttf
+	@cp internal/assets/fonts/PetMe64.ttf web/fonts/PetMe.ttf
 
 copy-wasm-exec:
 	@cp "$(shell go env GOROOT)/lib/wasm/wasm_exec.js" web/wasm_exec.js
