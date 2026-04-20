@@ -4,7 +4,7 @@ Faithful recreation of the Commodore PET TANK! game with networked multiplayer v
 
 ## Version
 
-Current: **0.9.13** (Spectator UI: HUD fix, canvas scaling, per-bot random skill display; bot debug logging via `-botdebug` flag; match list SSE wiring)
+Current: **1.0.0** (Python codebase removed; Go/WASM finalization)
 
 ## Quick Start
 

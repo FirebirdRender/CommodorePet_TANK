@@ -1,82 +1,3 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-
-# Virtual environments
-.venv/
-venv/
-ENV/
-env/
-
-
-# Packaging / editable installs
-build/
-dist/
-*.egg-info/
-*.egg
-
-# Test / typecheck / lint caches
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.hypothesis/
-.tox/
-.nox/
-
-# Coverage reports
-.coverage
-.coverage.*
-coverage.xml
-htmlcov/
-
-# Local env files (secrets)
-.env
-.env.*
-!.env.example
-
-# IDE / editor (uncomment .vscode/ if you want shared settings in-repo)
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-
-# OS junk
-.DS_Store
-Thumbs.db
-ehthumbs.db
-Desktop.ini
-hmem.config.json
-
-# Cursor / local agent state (not portable)
-.cursor/
-.opencode/
-opencode.json
-.sisyphus/
-.ruff_cache/
-.pytest_cache/
-.benchmarks/
-
-
-# Build docs / PRDS / etc
-docs/
-scripts/
-tasks/
-tests/
-PROJECT.2P/
-PROJECT.NET/
-
-# Game / dev runtime output (see tank_game DEBUG_LOG_FILE, showdown summaries)
-tank_debug.log
-tank_showdown_*.txt
-tank_showdown_timeouts.log
-
-# Profiling / tracing dumps (viztracer, cProfile, etc.)
-*.prof
-*.viztrace
-
 # Go build artifacts
 bin/
 client_bin
@@ -90,12 +11,49 @@ cmd/server/server
 /bot-load
 /bot-load.exe
 
-# Bot-load harness run artifacts (Phase 6 G-3)
+# Bot-load harness run artifacts
 /bot-load-*.json
 /bot-load-*.log
 
 # WASM build output (rebuilt from source)
 web/game.wasm
+
+# Game / dev runtime output
+tank_debug.log
+tank_showdown_*.txt
+tank_showdown_timeouts.log
+
+# Profiling
+*.prof
+*.viztrace
+
+# Local env files (secrets)
+.env
+.env.*
+!.env.example
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS junk
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Cursor / local agent state (not portable)
+.cursor/
+.opencode/
+opencode.json
+.sisyphus/
+hmem.config.json
+
+# Archived project planning (not part of Go source)
+ARCHIVE/
 
 # E2E test dependencies
 test/e2e/node_modules/

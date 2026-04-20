@@ -1,5 +1,36 @@
 ## Changelog
 
+### 1.0.0 - 2026-04-20 — Go/WASM finalization: Python codebase removed
+
+**Breaking change:** The Python/PyGame codebase (`tank_game/`, `tests/`, `pyproject.toml`) has been fully removed. The project is now exclusively Go/WASM. All Python dependencies, build files, test frameworks, and documentation have been cleaned up.
+
+**Removed (git-tracked):**
+- `tank_game/` — entire Python/PyGame source tree (14 `.py` files, font assets, `__pycache__`)
+- `tests/` — Python pytest suite (5 test files)
+- `pyproject.toml` — Python project definition (`tank-game-2p`)
+- `gameplay.analysis.md` — Python-era technical spec
+- `SECURITY_REPORT_041926.md` — root-level duplicate (kept in `docs/`)
+- `scripts/benchmark_headless_showdown_offline.py` — Python headless benchmark
+- `docs/PRD_AI_NAVIGATION.md`, `docs/PRD_py_trees_integration.md` — Python AI PRDs (replaced by Go bot AI)
+- `docs/PYGAME_QA_TESTING_SPEC.md` — PyGame QA spec (replaced by `go test`)
+- `docs/UI_RETRO_SPEC.md` — Python PETSCII retro spec (replaced by Go renderer)
+- `docs/FONTS/PetMe.ttf`, `docs/IMAGES/` — Python-only font copy and PyGame screenshots
+- `docs/tank-*.png`, `docs/tanks-*.png` — PyGame gameplay screenshots
+
+**Removed (local-only):**
+- `.venv/` (208 MB Python virtualenv)
+- `tank_game_2p.egg-info/`, `.pytest_cache/`, `.ruff_cache/`
+- Build artifacts: `tank-bot-1.00`, `tank-server-1.00`, `lagproxy`, `client_bin`, `server_bin`, `client.test`, `coverage.out`, `bot-load`, `cmd/server/server`
+- Dev screenshots (8 PNG verification images)
+
+**Fixed:**
+- `Makefile`: `copy-font` target no longer references deleted `tank_game/assets/fonts/` — font is embedded via `//go:embed` in `internal/assets/`
+- `Makefile`: `copy-web-fonts` target now copies from `internal/assets/fonts/PetMe64.ttf` instead of deleted `docs/FONTS/PetMe.ttf`
+
+**Verification:** `make clean && make build-all` passes. `go test -race ./... -count=1` passes. `go vet ./...` clean.
+
+**Bumped:** `AppVersion = "1.0.0"`, `VERSION = "1.0.0"`.
+
 ### 0.9.13 - 2026-04-19 — Spectator UI overhaul + bot debug logging + match list SSE
 
 **Spectator page (web/spectate.html) rewritten and tuned:**
