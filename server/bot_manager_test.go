@@ -12,7 +12,7 @@ func TestBotManager_IsEnabledTrueWhenEnvSet(t *testing.T) {
 
 	hub := NewHub()
 	tokens := NewTokenStore()
-	handler := NewWSHandler(hub, tokens)
+	handler := NewWSHandler(hub, tokens, nil, 0)
 	bm := NewBotManager(hub, handler, tokens, "localhost:8080")
 
 	if !bm.IsEnabled() {
@@ -27,7 +27,7 @@ func TestBotManager_IsEnabledFalseWhenEnvNotSet(t *testing.T) {
 
 	hub := NewHub()
 	tokens := NewTokenStore()
-	handler := NewWSHandler(hub, tokens)
+	handler := NewWSHandler(hub, tokens, nil, 0)
 	bm := NewBotManager(hub, handler, tokens, "localhost:8080")
 
 	if bm.IsEnabled() {
@@ -38,7 +38,7 @@ func TestBotManager_IsEnabledFalseWhenEnvNotSet(t *testing.T) {
 func TestBotManager_AssignBotToNonExistentRoom(t *testing.T) {
 	hub := NewHub()
 	tokens := NewTokenStore()
-	handler := NewWSHandler(hub, tokens)
+	handler := NewWSHandler(hub, tokens, nil, 0)
 	bm := NewBotManager(hub, handler, tokens, "localhost:8080")
 
 	err := bm.AssignBotToRoom("NONEXISTENT", "test")
@@ -50,7 +50,7 @@ func TestBotManager_AssignBotToNonExistentRoom(t *testing.T) {
 func TestBotManager_ReleaseBotNonExistent(t *testing.T) {
 	hub := NewHub()
 	tokens := NewTokenStore()
-	handler := NewWSHandler(hub, tokens)
+	handler := NewWSHandler(hub, tokens, nil, 0)
 	bm := NewBotManager(hub, handler, tokens, "localhost:8080")
 
 	bm.ReleaseBot("NONEXISTENT")
@@ -59,7 +59,7 @@ func TestBotManager_ReleaseBotNonExistent(t *testing.T) {
 func TestBotManager_HealthSnapshot(t *testing.T) {
 	hub := NewHub()
 	tokens := NewTokenStore()
-	handler := NewWSHandler(hub, tokens)
+	handler := NewWSHandler(hub, tokens, nil, 0)
 	bm := NewBotManager(hub, handler, tokens, "localhost:8080")
 
 	snapshot := bm.HealthSnapshot()

@@ -16,7 +16,7 @@ func setupTestServer(t *testing.T) (*httptest.Server, *WSHandler) {
 
 	hub := NewHub()
 	tokens := NewTokenStore()
-	handler := NewWSHandler(hub, tokens)
+	handler := NewWSHandler(hub, tokens, nil, 0)
 	ts := httptest.NewServer(handler)
 	t.Cleanup(ts.Close)
 
@@ -288,13 +288,14 @@ func TestWSDisconnectClosesRoomState(t *testing.T) {
 		if room == nil {
 			return
 		}
-		if room.GetState() == RoomClosed {
+		state := room.GetState()
+		if state == RoomClosed || state == RoomWaitingReconnect {
 			return
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
 
-	t.Fatal("expected room to be removed or closed after disconnect")
+	t.Fatal("expected room to be removed, closed, or in reconnect state after disconnect")
 }
 
 func TestWSInvalidMessageReturnsError(t *testing.T) {

@@ -17,7 +17,7 @@ func newTestServer(tb testing.TB) *httptest.Server {
 	tb.Helper()
 	hub := server.NewHub()
 	tokens := server.NewTokenStore()
-	handler := server.NewWSHandler(hub, tokens)
+	handler := server.NewWSHandler(hub, tokens, nil, 0)
 	ts := httptest.NewServer(handler)
 	tb.Cleanup(ts.Close)
 	return ts

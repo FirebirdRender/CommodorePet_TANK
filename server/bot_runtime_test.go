@@ -24,7 +24,7 @@ func TestBot_RuntimeBotInputAffectsState(t *testing.T) {
 	ts, handler, botManager := setupTestServerWithBot(t)
 	defer ts.Close()
 
-	roomAPI := NewRoomAPI(handler.Hub, handler.Registry(), handler.tokens)
+	roomAPI := NewRoomAPI(handler.Hub, handler.Registry(), handler.tokens, "*")
 	roomAPI.SetBotManager(botManager)
 
 	reqBody := map[string]any{

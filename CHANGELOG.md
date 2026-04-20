@@ -1,5 +1,23 @@
 ## Changelog
 
+### 1.1.0 - 2026-04-20 — Security hardening Phase 1
+
+Phase 1 of the security mitigation plan (B1, B2, B3, N3, S1, S2, S6):
+
+- **B1: WebSocket origin verification** — `InsecureSkipVerify: true` replaced with configurable `OriginPatterns`; `-allowed-origins` flag accepts comma-separated host patterns (empty = allow all, dev only)
+- **B2: CORS default changed** — Default CORS origin changed from `*` to `https://localhost:8080`; SSE `Access-Control-Allow-Origin` now uses the configured CORS value instead of hardcoded `*`; `X-Auth-Token` added to allowed headers
+- **B3: HTTP request body size limit** — `MaxBytesReader(4KB)` added to `handleCreateRoom` and `handleJoinRoom`; oversized requests return 413
+- **N3: WebSocket message size limit** — `SetReadLimit(4096)` added to `readPump` matching the HTTP body limit
+- **S1: WebSocket read timeout** — 90s context timeout per read in `readPump`; idle connections are closed
+- **S2: SSE authentication** — `/api/room/{code}/events` now requires a valid token via `?token=` or `X-Auth-Token` header; validates room code match; returns 401/403 on failure
+- **S6: Security headers** — `SecurityHeadersMiddleware` adds `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Permissions-Policy`
+- **B5 (partial): Connection cap plumbing** — `maxConns` and `atomic.Int64` counter added to `WSHandler`; `-max-conns` flag (default 1000); connections exceeding cap receive 503
+- **B4 (partial): pprof import removed** — `_ "net/http/pprof"` removed from `main.go`; replaced with `-debug-addr` flag for dev-only pprof on separate port
+
+Server flags added: `-allowed-origins`, `-max-conns`, `-debug-addr`
+`NewWSHandler` signature changed: now takes `originPatterns []string, maxConns int64`
+`NewRoomAPI` signature changed: now takes `cors string`
+
 ### 1.0.0 - 2026-04-20 — Go/WASM finalization: Python codebase removed
 
 **Breaking change:** The Python/PyGame codebase (`tank_game/`, `tests/`, `pyproject.toml`) has been fully removed. The project is now exclusively Go/WASM. All Python dependencies, build files, test frameworks, and documentation have been cleaned up.

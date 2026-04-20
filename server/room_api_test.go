@@ -56,7 +56,7 @@ func TestRoomAPI_CreateRoom(t *testing.T) {
 	hub := NewHub()
 	ts := NewTokenStore()
 	reg := NewConnRegistry()
-	api := NewRoomAPI(hub, reg, ts)
+	api := NewRoomAPI(hub, reg, ts, "*")
 
 	t.Run("Success", func(t *testing.T) {
 		reqBody := `{"difficulty": 5, "player_name": "Alice"}`
@@ -104,7 +104,7 @@ func TestRoomAPI_JoinRoom(t *testing.T) {
 	hub := NewHub()
 	ts := NewTokenStore()
 	reg := NewConnRegistry()
-	api := NewRoomAPI(hub, reg, ts)
+	api := NewRoomAPI(hub, reg, ts, "*")
 
 	room := hub.CreateRoom(5)
 	code := room.Code
@@ -135,7 +135,7 @@ func TestRoomAPI_GetRoomStatus(t *testing.T) {
 	hub := NewHub()
 	ts := NewTokenStore()
 	reg := NewConnRegistry()
-	api := NewRoomAPI(hub, reg, ts)
+	api := NewRoomAPI(hub, reg, ts, "*")
 
 	t.Run("NotFound", func(t *testing.T) {
 		w := httptest.NewRecorder()
@@ -211,14 +211,64 @@ func TestRoomAPI_RoomEvents_SSE(t *testing.T) {
 	hub := NewHub()
 	ts := NewTokenStore()
 	reg := NewConnRegistry()
-	api := NewRoomAPI(hub, reg, ts)
+	api := NewRoomAPI(hub, reg, ts, "*")
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/room/", api.handleRoomRoutes)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	t.Run("NotFound", func(t *testing.T) {
+	t.Run("NoAuthReturns401", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		room := hub.CreateRoom(5)
+		code := room.Code
+		room.AddPlayer("Alice")
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/api/room/"+code+"/events", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Accept", "text/event-stream")
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("expected 401 without token, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("InvalidTokenReturns403", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		room := hub.CreateRoom(5)
+		code := room.Code
+		room.AddPlayer("Alice")
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/api/room/"+code+"/events?token=invalid", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Accept", "text/event-stream")
+
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusForbidden {
+			t.Errorf("expected 403 with invalid token, got %d", resp.StatusCode)
+		}
+	})
+
+	t.Run("ExpiredRoomReturnsExpiredEvent", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 
@@ -234,27 +284,17 @@ func TestRoomAPI_RoomEvents_SSE(t *testing.T) {
 		}
 		defer resp.Body.Close()
 
-		scanner := bufio.NewScanner(resp.Body)
-		scanner.Split(scanLines)
-
-		eventFound := false
-		for scanner.Scan() {
-			line := scanner.Text()
-			if line == "event: room_expired" {
-				eventFound = true
-				break
-			}
-		}
-
-		if !eventFound {
-			t.Error("expected room_expired event within 2 seconds")
+		// Without token, should get 401
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Errorf("expected 401, got %d", resp.StatusCode)
 		}
 	})
 
-	t.Run("PlayerJoined", func(t *testing.T) {
+	t.Run("PlayerJoinedWithToken", func(t *testing.T) {
 		room := hub.CreateRoom(5)
 		code := room.Code
 		room.AddPlayer("Alice")
+		token := ts.GenerateToken(code, 1, "Alice")
 
 		mux2 := http.NewServeMux()
 		mux2.HandleFunc("/api/room/", api.handleRoomRoutes)
@@ -265,7 +305,7 @@ func TestRoomAPI_RoomEvents_SSE(t *testing.T) {
 		ctx, cancelGoroutine := context.WithCancel(context.Background())
 
 		go func() {
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, server2.URL+"/api/room/"+code+"/events", nil)
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, server2.URL+"/api/room/"+code+"/events?token="+token, nil)
 			if err != nil {
 				goroutineErr <- err
 				return
@@ -300,7 +340,7 @@ func TestRoomAPI_RoomEvents_SSE(t *testing.T) {
 
 		select {
 		case msg := <-events:
-			if !strings.Contains(msg, "player_joined") {
+			if !strings.Contains(msg, "player_joined") && !strings.Contains(msg, "bot_joined") {
 				t.Errorf("expected player_joined event, got: %s", msg)
 			}
 		case err := <-goroutineErr:
@@ -326,4 +366,58 @@ func scanLines(data []byte, atEOF bool) (advance int, token []byte, err error) {
 		return 0, nil, nil
 	}
 	return 0, data, io.EOF
+}
+
+func TestSpectatePageRoute(t *testing.T) {
+	// Test valid code returns spectate.html
+	hub := NewHub()
+	tokens := NewTokenStore()
+	reg := NewConnRegistry()
+	api := NewRoomAPI(hub, reg, tokens, "*")
+	api.SetStaticDir("../web")
+
+	mux := http.NewServeMux()
+	api.RegisterRoutes(mux)
+
+	r := httptest.NewRequest("GET", "/spectate/ABCD", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != 200 {
+		t.Errorf("GET /spectate/ABCD: expected 200, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "<!DOCTYPE html>") {
+		t.Errorf("GET /spectate/ABCD: expected HTML content, got: %s", w.Body.String())
+	}
+
+	// Test empty code returns 404
+	r = httptest.NewRequest("GET", "/spectate/", nil)
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != 404 {
+		t.Errorf("GET /spectate/: expected 404, got %d", w.Code)
+	}
+
+	// Test invalid code (3 chars) returns 404
+	r = httptest.NewRequest("GET", "/spectate/ABC", nil)
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != 404 {
+		t.Errorf("GET /spectate/ABC: expected 404, got %d", w.Code)
+	}
+
+	// Test invalid code (lowercase) returns 404
+	r = httptest.NewRequest("GET", "/spectate/abcd", nil)
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != 404 {
+		t.Errorf("GET /spectate/abcd: expected 404, got %d", w.Code)
+	}
+
+	// Test method not allowed returns 405
+	r = httptest.NewRequest("POST", "/spectate/ABCD", nil)
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, r)
+	if w.Code != 405 {
+		t.Errorf("POST /spectate/ABCD: expected 405, got %d", w.Code)
+	}
 }

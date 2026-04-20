@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -28,13 +29,19 @@ type ClientConn struct {
 	mu        sync.Mutex
 	room      *Room
 	mc        *MatchController
+
+	isSpectator bool
+	spectatorID string
 }
 
 type WSHandler struct {
-	Hub      *Hub
-	registry *ConnRegistry
-	tokens   *TokenStore
-	regOnce  sync.Once
+	Hub            *Hub
+	registry       *ConnRegistry
+	tokens         *TokenStore
+	regOnce        sync.Once
+	originPatterns []string
+	maxConns       int64
+	currentConns   atomic.Int64
 }
 
 type ConnRegistry struct {
@@ -49,13 +56,16 @@ type RoomConnections struct {
 
 type RoomBridge struct {
 	clients [2]*ClientConn
+	room    *Room
 }
 
-func NewWSHandler(hub *Hub, tokens *TokenStore) *WSHandler {
+func NewWSHandler(hub *Hub, tokens *TokenStore, originPatterns []string, maxConns int64) *WSHandler {
 	return &WSHandler{
-		Hub:      hub,
-		tokens:   tokens,
-		registry: NewConnRegistry(),
+		Hub:            hub,
+		tokens:         tokens,
+		registry:       NewConnRegistry(),
+		originPatterns: originPatterns,
+		maxConns:       maxConns,
 	}
 }
 
@@ -79,8 +89,33 @@ func (h *WSHandler) Registry() *ConnRegistry {
 func (h *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.ensureRegistry()
 
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
+	// B5: Connection cap — reject before accepting WebSocket
+	if h.maxConns > 0 && h.currentConns.Add(1) > h.maxConns {
+		h.currentConns.Add(-1)
+		http.Error(w, "too many connections", http.StatusServiceUnavailable)
+		log.Printf("[ws] connection rejected: limit %d reached", h.maxConns)
+		return
+	}
+	defer func() {
+		if h.maxConns > 0 {
+			h.currentConns.Add(-1)
+		}
+	}()
+
+	// B1: Origin verification — replace InsecureSkipVerify with OriginPatterns
+	opts := &websocket.AcceptOptions{
+		OriginPatterns: h.originPatterns,
+	}
+	if len(h.originPatterns) == 0 {
+		// Fallback: if no origins configured, allow all (dev mode)
+		opts.InsecureSkipVerify = true
+	}
+
+	conn, err := websocket.Accept(w, r, opts)
 	if err != nil {
+		if h.maxConns > 0 {
+			h.currentConns.Add(-1)
+		}
 		return
 	}
 
@@ -102,9 +137,16 @@ func (h *WSHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (c *ClientConn) readPump() {
 	defer c.cleanupAndClose()
 
-	ctx := context.Background()
+	// N3: Explicit WebSocket message size limit (4KB — consistent with B3 HTTP body limit)
+	c.conn.SetReadLimit(4096)
+
+	// S1: Read deadline — use context timeout; resets on each successful read
+	readDeadline := 90 * time.Second
+
 	for {
+		ctx, cancel := context.WithTimeout(context.Background(), readDeadline)
 		_, data, err := c.conn.Read(ctx)
+		cancel()
 		if err != nil {
 			return
 		}
@@ -145,11 +187,19 @@ func (c *ClientConn) handleMessage(msgType string, payload []byte) {
 	case MsgTypeReady:
 		c.handleReady(payload)
 	case MsgTypeInput:
-		c.handleInput(payload)
+		if c.isSpectator {
+			c.sendError(ErrCodeReadOnly, "spectators cannot send input")
+		} else {
+			c.handleInput(payload)
+		}
 	case MsgTypePlayAgain:
 		c.handlePlayAgain(payload)
 	case MsgTypeRejoin:
 		c.handleRejoin(payload)
+	case MsgTypeSpectate:
+		c.handleSpectate(payload)
+	case MsgTypeStayConnected:
+		// no-op: client confirms staying connected during reconnect
 	default:
 		c.sendError(ErrCodeInvalidInput, "unknown message type")
 	}
@@ -186,6 +236,33 @@ func (c *ClientConn) handleRejoin(payload []byte) {
 	if room.GetState() == RoomClosed {
 		c.sendError(ErrCodeServerError, "room is closed")
 		c.close()
+		return
+	}
+
+	if room.GetState() == RoomWaitingReconnect {
+		oppID := otherPlayerID(entry.PlayerID)
+		oppConn := c.handler.registry.GetConn(room.Code, oppID)
+
+		c.setRoomAndPlayer(room, entry.PlayerID)
+		c.handler.registry.SetConn(room.Code, entry.PlayerID, c)
+
+		room.TryResumeMatch()
+
+		c.sendOrLog(MsgTypeResumeMatch, ResumeMatchMsg{RoomCode: room.Code})
+		if oppConn != nil {
+			oppConn.sendOrLog(MsgTypeResumeMatch, ResumeMatchMsg{RoomCode: room.Code})
+		}
+
+		mc := c.handler.registry.GetMatch(room.Code)
+		if mc == nil {
+			conns := c.handler.registry.GetClients(room.Code)
+			if conns[0] != nil && conns[1] != nil {
+				c.startMatchForRoom(room)
+			}
+		} else {
+			c.setMatch(mc)
+			c.sendOrLog(MsgTypeGameStart, mc.GameStartState(entry.PlayerID))
+		}
 		return
 	}
 
@@ -459,16 +536,80 @@ func (c *ClientConn) sendError(code string, message string) {
 
 func (c *ClientConn) cleanupAndClose() {
 	room := c.getRoom()
-	if room != nil {
-		playerID := c.getPlayerID()
+	if room == nil {
+		c.close()
+		return
+	}
+
+	if c.isSpectator {
+		room.RemoveSpectator(c.spectatorID)
+		spectatorCount := room.SpectatorCount()
+		conns := c.handler.registry.GetClients(room.Code)
+		for _, conn := range conns {
+			if conn != nil {
+				conn.sendOrLog(MsgTypeSpectatorLeft, SpectatorLeftMsg{
+					SpectatorCount: spectatorCount,
+				})
+			}
+		}
+		c.close()
+		return
+	}
+
+	playerID := c.getPlayerID()
+	state := room.GetState()
+
+	if state == RoomPlaying {
+		oppID := otherPlayerID(playerID)
+		oppConn := c.handler.registry.GetConn(room.Code, oppID)
+
+		room.MarkDisconnected(playerID)
+		deadline, shouldReconnect := room.SetWaitingReconnect(playerID)
+
+		if shouldReconnect {
+			if oppConn != nil {
+				oppConn.sendOrLog(MsgTypePlayerDisconnected, PlayerDisconnectedMsg{
+					Duration:          int(room.DisconnectTimeout.Seconds()),
+					ReconnectDeadline: float64(deadline.Unix()),
+				})
+				oppConn.sendOrLog(MsgTypeOpponentLeft, OpponentLeftMsg{Reason: "disconnect"})
+			}
+
+			room.StartReconnectTimer()
+
+			if oppConn != nil {
+				go oppConn.startReconnectQueryTicker(room, oppConn)
+			}
+		} else {
+			room.StopReconnectTimer()
+			room.ForceSecondDisconnect()
+			mc := c.getMatch()
+			if mc == nil {
+				mc = c.handler.registry.GetMatch(room.Code)
+			}
+			if mc != nil {
+				mc.Stop()
+			}
+			empty := room.RemovePlayer(playerID)
+			if empty {
+				c.hub.BroadcastMatchEnded(room.Code)
+				c.hub.RemoveRoom(room.Code)
+				c.handler.registry.RemoveRoom(room.Code)
+			}
+		}
+
+		c.handler.registry.RemoveConn(room.Code, playerID)
+		c.close()
+		return
+	}
+
+	if state == RoomWaitingReconnect {
+		room.ForceSecondDisconnect()
 		oppID := otherPlayerID(playerID)
 		oppConn := c.handler.registry.GetConn(room.Code, oppID)
 		if oppConn != nil {
 			oppConn.sendOrLog(MsgTypeOpponentLeft, OpponentLeftMsg{Reason: "disconnect"})
 		}
-
-		empty := room.RemovePlayer(playerID)
-
 		mc := c.getMatch()
 		if mc == nil {
 			mc = c.handler.registry.GetMatch(room.Code)
@@ -476,12 +617,38 @@ func (c *ClientConn) cleanupAndClose() {
 		if mc != nil {
 			mc.Stop()
 		}
-
+		empty := room.RemovePlayer(playerID)
 		c.handler.registry.RemoveConn(room.Code, playerID)
 		if empty {
+			c.hub.BroadcastMatchEnded(room.Code)
 			c.hub.RemoveRoom(room.Code)
 			c.handler.registry.RemoveRoom(room.Code)
 		}
+		c.close()
+		return
+	}
+
+	oppID := otherPlayerID(playerID)
+	oppConn := c.handler.registry.GetConn(room.Code, oppID)
+	if oppConn != nil {
+		oppConn.sendOrLog(MsgTypeOpponentLeft, OpponentLeftMsg{Reason: "disconnect"})
+	}
+
+	empty := room.RemovePlayer(playerID)
+
+	mc := c.getMatch()
+	if mc == nil {
+		mc = c.handler.registry.GetMatch(room.Code)
+	}
+	if mc != nil {
+		mc.Stop()
+	}
+
+	c.handler.registry.RemoveConn(room.Code, playerID)
+	if empty {
+		c.hub.BroadcastMatchEnded(room.Code)
+		c.hub.RemoveRoom(room.Code)
+		c.handler.registry.RemoveRoom(room.Code)
 	}
 
 	c.close()
@@ -574,6 +741,28 @@ func (rb *RoomBridge) OnTickDelta(_ uint64, state *TickDeltaMsg) {
 	}
 }
 
+func (rb *RoomBridge) OnTickSpectator(_ uint64, state *TickMsg) {
+	if rb.room == nil {
+		return
+	}
+	data, err := WrapMessage(MsgTypeTick, state)
+	if err != nil {
+		return
+	}
+	rb.room.BroadcastToSpectators(MsgTypeTick, data)
+}
+
+func (rb *RoomBridge) OnTickDeltaSpectator(_ uint64, state *TickDeltaMsg) {
+	if rb.room == nil {
+		return
+	}
+	data, err := WrapMessage(MsgTypeTickDelta, state)
+	if err != nil {
+		return
+	}
+	rb.room.BroadcastToSpectators(MsgTypeTickDelta, data)
+}
+
 func (rb *RoomBridge) OnRoundOver(msg *RoundOverMsg) {
 	data, err := WrapMessage(MsgTypeRoundOver, msg)
 	if err != nil {
@@ -595,6 +784,9 @@ func (rb *RoomBridge) OnGameOver(msg *GameOverMsg) {
 		if c != nil {
 			c.send(data)
 		}
+	}
+	if rb.room != nil {
+		rb.room.BroadcastToSpectators(MsgTypeGameOver, data)
 	}
 }
 
@@ -730,8 +922,11 @@ func (c *ClientConn) startMatchForRoom(room *Room) {
 		return
 	}
 
-	bridge := &RoomBridge{clients: conns}
+	bridge := &RoomBridge{clients: conns, room: room}
 	mc := NewMatchController(room.Difficulty, time.Now().UnixNano(), bridge)
+	if room.Players[0] != nil {
+		mc.SetPlayerSkills(room.Players[0].Skill, room.Players[1].Skill)
+	}
 	if !c.handler.registry.SetMatchIfEmpty(room.Code, mc) {
 		mc = c.handler.registry.GetMatch(room.Code)
 	}
@@ -741,10 +936,93 @@ func (c *ClientConn) startMatchForRoom(room *Room) {
 	}
 
 	room.SetState(RoomPlaying)
+	c.hub.BroadcastMatchStarted(room.Code)
 	conns[0].setMatch(mc)
 	conns[1].setMatch(mc)
 
 	conns[0].sendOrLog(MsgTypeGameStart, mc.GameStartState(1))
 	conns[1].sendOrLog(MsgTypeGameStart, mc.GameStartState(2))
 	mc.Start()
+}
+
+func (c *ClientConn) handleSpectate(payload []byte) {
+	var msg SpectateMsg
+	if err := json.Unmarshal(payload, &msg); err != nil {
+		c.sendError(ErrCodeInvalidInput, "invalid spectate message")
+		c.close()
+		return
+	}
+
+	room := c.hub.GetRoom(msg.RoomCode)
+	if room == nil {
+		c.sendError(ErrCodeRoomNotFound, "room not found")
+		c.close()
+		return
+	}
+
+	state := room.GetState()
+	if state != RoomPlaying && state != RoomWaitingReconnect {
+		c.sendError(ErrCodeServerError, "room not in progress")
+		c.close()
+		return
+	}
+
+	spectatorID := room.AddSpectator("spectator")
+	c.isSpectator = true
+	c.spectatorID = spectatorID
+	c.room = room
+	room.spectatorConns[spectatorID] = c
+
+	spectatorCount := room.SpectatorCount()
+
+	opponentID := 1
+	if c.playerID == 1 {
+		opponentID = 2
+	}
+
+	players := room.Players
+	for i, p := range players {
+		if p != nil && p.Connected {
+			pName := ""
+			if c.handler.registry.GetClients(room.Code)[i] != nil {
+				pName = p.Name
+			}
+			_ = pName
+		}
+	}
+	_ = opponentID
+
+	c.sendOrLog(MsgTypeSpectatorJoined, SpectatorJoinedMsg{
+		PlayerID:       0,
+		Name:           "spectator",
+		SpectatorCount: spectatorCount,
+	})
+
+	if mc := c.handler.registry.GetMatch(room.Code); mc != nil {
+		c.sendOrLog(MsgTypeGameStart, mc.GameStartState(0))
+	}
+}
+
+func (c *ClientConn) startReconnectQueryTicker(room *Room, oppConn *ClientConn) {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			if room.GetState() != RoomWaitingReconnect {
+				return
+			}
+			remaining := int(time.Until(room.ReconnectDeadline).Seconds())
+			if remaining <= 0 {
+				return
+			}
+			if oppConn != nil {
+				oppConn.sendOrLog(MsgTypeReconnectQuery, ReconnectQueryMsg{
+					SecondsRemaining: remaining,
+				})
+			}
+		case <-c.done:
+			return
+		}
+	}
 }

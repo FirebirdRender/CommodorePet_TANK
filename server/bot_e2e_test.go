@@ -20,7 +20,7 @@ func setupTestServerWithBot(t *testing.T) (*httptest.Server, *WSHandler, *BotMan
 
 	hub := NewHub()
 	tokens := NewTokenStore()
-	handler := NewWSHandler(hub, tokens)
+	handler := NewWSHandler(hub, tokens, nil, 0)
 
 	ts := httptest.NewServer(handler)
 	t.Cleanup(ts.Close)
@@ -51,7 +51,7 @@ func TestBot_VSAIRoomCreation(t *testing.T) {
 	ts, handler, botManager := setupTestServerWithBot(t)
 	defer ts.Close()
 
-	roomAPI := NewRoomAPI(handler.Hub, handler.Registry(), handler.tokens)
+	roomAPI := NewRoomAPI(handler.Hub, handler.Registry(), handler.tokens, "*")
 	roomAPI.SetBotManager(botManager)
 
 	reqBody := map[string]any{
@@ -110,7 +110,7 @@ func TestBot_VSAIRoomCreation(t *testing.T) {
 func TestBot_BotJoinsViaWS(t *testing.T) {
 	_, handler, botManager := setupTestServerWithBot(t)
 
-	roomAPI := NewRoomAPI(handler.Hub, handler.Registry(), handler.tokens)
+	roomAPI := NewRoomAPI(handler.Hub, handler.Registry(), handler.tokens, "*")
 	roomAPI.SetBotManager(botManager)
 
 	reqBody := map[string]any{
@@ -152,7 +152,7 @@ func TestBot_BotJoinsViaWS(t *testing.T) {
 func TestBot_DisconnectHandling(t *testing.T) {
 	_, handler, botManager := setupTestServerWithBot(t)
 
-	roomAPI := NewRoomAPI(handler.Hub, handler.Registry(), handler.tokens)
+	roomAPI := NewRoomAPI(handler.Hub, handler.Registry(), handler.tokens, "*")
 	roomAPI.SetBotManager(botManager)
 
 	reqBody := map[string]any{
@@ -194,7 +194,7 @@ func TestBot_RoomStatusIncludesBotInfo(t *testing.T) {
 	ts, handler, botManager := setupTestServerWithBot(t)
 	defer ts.Close()
 
-	roomAPI := NewRoomAPI(handler.Hub, handler.Registry(), handler.tokens)
+	roomAPI := NewRoomAPI(handler.Hub, handler.Registry(), handler.tokens, "*")
 	roomAPI.SetBotManager(botManager)
 
 	reqBody := map[string]any{
@@ -246,7 +246,7 @@ func TestBot_RoomStatusIncludesBotInfo(t *testing.T) {
 		t.Fatalf("reserve bot seat: %v", err)
 	}
 
-	_, err := room.AddBotPlayer("CPU-MVP", "test-bot-123", "mvp")
+	_, err := room.AddBotPlayer("CPU-MVP", "test-bot-123", "mvp", 0)
 	if err != nil {
 		t.Fatalf("add bot player: %v", err)
 	}
@@ -271,7 +271,7 @@ func TestBot_RoomStatusIncludesBotInfo(t *testing.T) {
 func TestBot_AutoFillTimerCancelledOnHumanJoin(t *testing.T) {
 	_, handler, botManager := setupTestServerWithBot(t)
 
-	roomAPI := NewRoomAPI(handler.Hub, handler.Registry(), handler.tokens)
+	roomAPI := NewRoomAPI(handler.Hub, handler.Registry(), handler.tokens, "*")
 	roomAPI.SetBotManager(botManager)
 
 	reqBody := map[string]any{
