@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"
@@ -14,6 +16,7 @@ const (
 	RoomPlaying
 	RoomGameOver
 	RoomClosed
+	RoomWaitingReconnect // value 5
 )
 
 type Player struct {
@@ -25,6 +28,12 @@ type Player struct {
 	IsBot        bool
 	BotID        string
 	BotClass     string
+	Skill        int // skill level 0-9 for bots, 0 for human players
+}
+
+type Spectator struct {
+	ID   string
+	Name string
 }
 
 type Room struct {
@@ -32,39 +41,50 @@ type Room struct {
 	Difficulty int
 	State      RoomState
 	Players    [2]*Player
+	Spectators []Spectator
 	CreatedAt  time.Time
 
 	AllowBot         bool
 	AutoFillBot      bool
 	AutoFillAfterSec int
-	// BotSeatReserved is per-slot (index 0 = P1 seat, index 1 = P2 seat).
-	// Bot-vs-bot rooms reserve both slots; standard vs-AI rooms reserve only [1].
-	// Justification: priority 3 — exported field with non-obvious indexing semantics
-	// that callers reading the struct will get wrong without explanation.
-	BotSeatReserved [2]bool
-	autoFillTimer   *time.Timer
+	BotSeatReserved  [2]bool
+	autoFillTimer    *time.Timer
+	Private          bool
+
+	SpectateTokens map[string]struct{}
+	spectatorConns map[string]*ClientConn
+
+	DisconnectTimeout time.Duration
+	ReconnectDeadline time.Time
+	DisconnectCount   int
+	reconnectTimer    *time.Timer
+	reconnectTimerMu  sync.Mutex
 
 	mu sync.Mutex
 }
 
 func NewRoom(code string, difficulty int) *Room {
 	return &Room{
-		Code:       code,
-		Difficulty: difficulty,
-		State:      RoomWaiting,
-		CreatedAt:  time.Now(),
+		Code:              code,
+		Difficulty:        difficulty,
+		State:             RoomWaiting,
+		CreatedAt:         time.Now(),
+		DisconnectTimeout: 5 * time.Minute,
+		spectatorConns:    make(map[string]*ClientConn),
 	}
 }
 
 func NewRoomWithBotPolicy(code string, difficulty int, allowBot, autoFillBot bool, autoFillAfterSec int) *Room {
 	return &Room{
-		Code:             code,
-		Difficulty:       difficulty,
-		State:            RoomWaiting,
-		CreatedAt:        time.Now(),
-		AllowBot:         allowBot,
-		AutoFillBot:      autoFillBot,
-		AutoFillAfterSec: autoFillAfterSec,
+		Code:              code,
+		Difficulty:        difficulty,
+		State:             RoomWaiting,
+		CreatedAt:         time.Now(),
+		AllowBot:          allowBot,
+		AutoFillBot:       autoFillBot,
+		AutoFillAfterSec:  autoFillAfterSec,
+		DisconnectTimeout: 5 * time.Minute,
+		spectatorConns:    make(map[string]*ClientConn),
 	}
 }
 
@@ -92,6 +112,21 @@ func (r *Room) AddPlayer(name string) (playerID int, err error) {
 	}
 
 	return 0, fmt.Errorf("room is full")
+}
+
+// MarkDisconnected sets the player's Connected flag to false without
+// changing room state. Used during the reconnect flow so that a
+// subsequent disconnect from the other player (or the reconnect timer)
+// can correctly detect that no connected players remain.
+func (r *Room) MarkDisconnected(playerID int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if playerID >= 1 && playerID <= 2 {
+		p := r.Players[playerID-1]
+		if p != nil {
+			p.Connected = false
+		}
+	}
 }
 
 func (r *Room) RemovePlayer(playerID int) (empty bool) {
@@ -246,11 +281,11 @@ func (r *Room) ReserveBotSeatAt(slot int) error {
 	return nil
 }
 
-func (r *Room) AddBotPlayer(name, botID, botClass string) (int, error) {
-	return r.AddBotPlayerAt(1, name, botID, botClass)
+func (r *Room) AddBotPlayer(name, botID, botClass string, skill int) (int, error) {
+	return r.AddBotPlayerAt(1, name, botID, botClass, skill)
 }
 
-func (r *Room) AddBotPlayerAt(slot int, name, botID, botClass string) (int, error) {
+func (r *Room) AddBotPlayerAt(slot int, name, botID, botClass string, skill int) (int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -268,6 +303,7 @@ func (r *Room) AddBotPlayerAt(slot int, name, botID, botClass string) (int, erro
 		IsBot:     true,
 		BotID:     botID,
 		BotClass:  botClass,
+		Skill:     skill,
 	}
 	r.BotSeatReserved[slot] = false
 
@@ -300,4 +336,150 @@ func (r *Room) SetAutoFillTimer(t *time.Timer) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.autoFillTimer = t
+}
+
+func (r *Room) IsPublic() bool {
+	return !r.Private
+}
+
+func (r *Room) AddSpectator(name string) string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	b := make([]byte, 8)
+	rand.Read(b)
+	id := fmt.Sprintf("sp_%s", hex.EncodeToString(b))
+	r.Spectators = append(r.Spectators, Spectator{ID: id, Name: name})
+	return id
+}
+
+func (r *Room) RemoveSpectator(id string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i, s := range r.Spectators {
+		if s.ID == id {
+			r.Spectators = append(r.Spectators[:i], r.Spectators[i+1:]...)
+			break
+		}
+	}
+	delete(r.spectatorConns, id)
+}
+
+func (r *Room) SpectatorCount() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.Spectators)
+}
+
+func (r *Room) BroadcastToSpectators(msgType string, payload []byte) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for id, conn := range r.spectatorConns {
+		if conn != nil {
+			conn.send(payload)
+		} else {
+			delete(r.spectatorConns, id)
+		}
+	}
+}
+
+func (r *Room) GenerateSpectateToken() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	b := make([]byte, 16)
+	rand.Read(b)
+	token := hex.EncodeToString(b)
+
+	if r.SpectateTokens == nil {
+		r.SpectateTokens = make(map[string]struct{})
+	}
+	r.SpectateTokens[token] = struct{}{}
+	return token
+}
+
+func (r *Room) ValidateSpectateToken(token string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.SpectateTokens == nil {
+		return false
+	}
+	_, ok := r.SpectateTokens[token]
+	return ok
+}
+
+func (r *Room) SetWaitingReconnect(disconnectingPlayerID int) (deadline time.Time, shouldReconnect bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.State = RoomWaitingReconnect
+	r.ReconnectDeadline = time.Now().Add(r.DisconnectTimeout)
+	r.DisconnectCount++
+
+	otherID := 1
+	if disconnectingPlayerID == 1 {
+		otherID = 2
+	}
+	if otherID >= 1 && otherID <= 2 {
+		other := r.Players[otherID-1]
+		shouldReconnect = other != nil && other.Connected
+	}
+
+	return r.ReconnectDeadline, shouldReconnect
+}
+
+func (r *Room) StartReconnectTimer() {
+	r.reconnectTimerMu.Lock()
+	if r.reconnectTimer != nil {
+		r.reconnectTimerMu.Unlock()
+		return
+	}
+	timer := time.NewTimer(r.DisconnectTimeout)
+	r.reconnectTimer = timer
+	r.reconnectTimerMu.Unlock()
+
+	go func() {
+		<-timer.C
+		r.mu.Lock()
+		if r.State != RoomWaitingReconnect {
+			r.mu.Unlock()
+			return
+		}
+		r.State = RoomClosed
+		r.mu.Unlock()
+		r.StopReconnectTimer()
+	}()
+}
+
+func (r *Room) StopReconnectTimer() {
+	r.reconnectTimerMu.Lock()
+	defer r.reconnectTimerMu.Unlock()
+	if r.reconnectTimer != nil {
+		r.reconnectTimer.Stop()
+		r.reconnectTimer = nil
+	}
+}
+
+func (r *Room) TryResumeMatch() string {
+	r.StopReconnectTimer()
+	r.mu.Lock()
+	r.State = RoomPlaying
+	r.mu.Unlock()
+	return r.Code
+}
+
+func (r *Room) ForceSecondDisconnect() {
+	r.StopReconnectTimer()
+	r.mu.Lock()
+	r.State = RoomClosed
+	r.mu.Unlock()
+}
+
+func (r *Room) WaitForBotConns(timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if r.BothPlayersConnected() {
+			return true
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return false
 }

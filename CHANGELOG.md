@@ -1,5 +1,16 @@
 ## Changelog
 
+### 1.4.0 - 2026-04-20 — Security hardening Phase 4 (AF1, AF2, AF3, AF4)
+
+Phase 4 — Additional findings from security audit:
+
+- **AF1: Spectate token crypto/rand** — Deleted weak `generateRoomCode()` (time-based); `GenerateSpectateToken` now uses `crypto/rand` with 16-byte hex; `AddSpectator` ID also uses `crypto/rand` (8-byte hex)
+- **AF2: CI/CD pipeline** — `.github/workflows/test.yaml` added; runs `go test -race`, `govulncheck`, and builds server+bot on push to main/NetTank/develop
+- **AF3: Python deps** — No-op; `pyproject.toml` removed in v1.0.0 Python codebase cleanup
+- **AF4: lagproxy documentation** — S8 `//go:build dev` tag applied in Phase 3
+
+All 7 blockers, 8 strongly recommended items, and 5 nice-to-haves from the security audit are now addressed.
+
 ### 1.3.0 - 2026-04-20 — Security hardening Phase 3
 
 Phase 3 of the security mitigation plan (B7, S8, N4, N5):
