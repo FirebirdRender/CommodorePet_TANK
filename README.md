@@ -4,7 +4,7 @@ Faithful recreation of the Commodore PET TANK! game with networked multiplayer v
 
 ## Version
 
-Current: **1.0.0** (Python codebase removed; Go/WASM finalization)
+Current: **1.4.2** (bot AI skill gating + test harness)
 
 ## Quick Start
 

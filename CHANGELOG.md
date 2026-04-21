@@ -1,5 +1,23 @@
 ## Changelog
 
+### 1.4.2 - 2026-04-20 — Bot AI: gated diagonal firing + skilltest harness
+
+**Diagonal firing now skill-gated (d=4+).** Previously all difficulties could fire along 45-degree diagonals — this was engine-level behavior, not an earned skill. Now lower-skill bots (d=1-3) are restricted to cardinal row/column shots only, which steepens the mid-tier skill ladder.
+
+- `SkillConfig.EnableDiagonalFire` field added; `false` for d=1-3, `true` for d=4-10
+- `cmd/bot-go/ai.go::canFireWithLOS` diagonal alignment check guarded on `bs.skillConfig.EnableDiagonalFire`
+- `BOT_AI_SCALING_GRID.md` updated with `DiagFire` column and d=4 unlock note
+
+**Skill-vs-skill test harness (`cmd/bot-skilltest/`).** Automated headless tournament runner that validates higher-skill bots beat lower-skill bots.
+
+- Bot-skilltest binary created: concurrent match spawning, configurable match count + concurrency
+- Per-match timeout (default 300s) → bots killed, result recorded as DRAW
+- CSV + JSON output with per-difficulty summaries (passed/failed/draws + higher-skill win rate)
+- Server auto-room disabled during harness runs to eliminate phantom bot interference
+- Stderr pipe continuously drained to prevent server I/O deadlocks
+
+**Build:** `make skilltest` target added; included in `make build-all`.
+
 ### 1.4.1 - 2026-04-20 — Fix VS AI room status regression from S7
 
 S7's room status enumeration protection was too aggressive — it blocked
