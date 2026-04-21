@@ -4,7 +4,7 @@ Faithful recreation of the Commodore PET TANK! game with networked multiplayer v
 
 ## Version
 
-Current: **1.4.3** (AI skill-ladder verified; `make distro` packages dedicated server)
+Current: **1.4.4** (Makefile distro target + `make serve` removed)
 
 ## Quick Start
 
