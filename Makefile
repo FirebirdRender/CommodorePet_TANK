@@ -26,8 +26,12 @@ bot:
 	@mkdir -p bin
 	go build -o bin/tank-bot ./cmd/bot-go/
 
-build-all: server bot wasm
-	@echo "Build complete: bin/tank-server + bin/tank-bot + web/game.wasm"
+skilltest:
+	@mkdir -p bin
+	go build -o bin/bot-skilltest ./cmd/bot-skilltest/
+
+build-all: server bot wasm skilltest
+	@echo "Build complete: bin/tank-server + bin/tank-bot + bin/bot-skilltest + web/game.wasm"
 
 serve:
 	cd web && python3 -m http.server 8081
