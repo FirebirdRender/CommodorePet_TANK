@@ -1,4 +1,4 @@
-.PHONY: wasm wasm-size serve dev copy-font copy-wasm-exec copy-web-fonts clean server bot build-all test test-e2e test-wasm test-headless test-all govulncheck
+.PHONY: wasm wasm-size dev copy-font copy-wasm-exec copy-web-fonts clean server bot skilltest build-all dist distro test test-e2e test-wasm test-headless test-all govulncheck
 
 copy-font:
 	@true  # font embedded via internal/assets/fonts/PetMe64.ttf — no copy needed
@@ -33,8 +33,27 @@ skilltest:
 build-all: server bot wasm skilltest
 	@echo "Build complete: bin/tank-server + bin/tank-bot + bin/bot-skilltest + web/game.wasm"
 
-serve:
-	cd web && python3 -m http.server 8081
+# Distro package for dedicated server deployment.
+# Builds server+bot+wasm then packs bin/ + web/ into a tar.gz.
+dist_name = tank-distro-$(shell git describe --tags --always --dirty 2>/dev/null || echo "unknown")
+
+dist: build-all
+	@echo "Building distro: $(dist_name).tar.gz"
+	@tar -czf "$(dist_name).tar.gz" \
+		bin/tank-server \
+		bin/tank-bot \
+		web/game.wasm \
+		web/wasm_exec.js \
+		web/app.js \
+		web/style.css \
+		web/index.html \
+		web/game.html \
+		web/spectate.html \
+		web/fonts/PetMe.ttf \
+		web/sounds/
+	@echo "Distro ready: $(dist_name).tar.gz"
+
+distro: dist
 
 dev: wasm copy-wasm-exec
 	go run ./cmd/server/ -addr :8080 -dir web

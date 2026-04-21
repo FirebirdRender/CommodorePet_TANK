@@ -20,6 +20,9 @@ cmd/server/server
 /skilltest.csv
 /skilltest.json
 
+# Distro packages
+/tank-distro-*.tar.gz
+
 # WASM build output (rebuilt from source)
 web/game.wasm
 

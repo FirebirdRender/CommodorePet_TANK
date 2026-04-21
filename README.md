@@ -4,7 +4,7 @@ Faithful recreation of the Commodore PET TANK! game with networked multiplayer v
 
 ## Version
 
-Current: **1.4.2** (bot AI skill gating + test harness)
+Current: **1.4.3** (AI skill-ladder verified; `make distro` packages dedicated server)
 
 ## Quick Start
 
@@ -36,6 +36,7 @@ open http://localhost:8080/
 make dev           # Build WASM and start server
 make wasm-size     # Check WASM binary size
 make clean         # Remove build artifacts
+make distro        # Build + package for dedicated server deployment
 ```
 
 ## Project Structure

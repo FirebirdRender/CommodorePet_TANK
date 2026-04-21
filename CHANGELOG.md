@@ -1,5 +1,14 @@
 ## Changelog
 
+### 1.4.4 - 2026-04-21 — Makefile: remove legacy serve, add distro packaging
+
+**Removed:** `make serve` target (Python `http.server` leftover from pre-WASM stack). 
+**Added:** `make distro` target — builds server+bot+wasm then packs into `tank-distro-<version>.tar.gz` containing all runtime files needed for dedicated server deployment:
+- `bin/tank-server` + `bin/tank-bot` binaries
+- `web/` static assets (WASM, JS, HTML, CSS, fonts, sounds)
+
+README updated: version badge bumped, `make distro` added to dev commands.
+
 ### 1.4.3 - 2026-04-20 — Bot AI: linearize skill ladder with diagonal gating
 
 **Diagonal firing gated to d=4+** (was engine-level, available to all).
