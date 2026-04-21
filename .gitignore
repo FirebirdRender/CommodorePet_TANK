@@ -46,6 +46,7 @@ tank_showdown_timeouts.log
 *.swp
 *.swo
 *~
+AGENTS.md
 
 # OS junk
 .DS_Store
