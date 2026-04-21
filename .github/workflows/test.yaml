@@ -2,9 +2,9 @@ name: Test
 
 on:
   push:
-    branches: [main, NetTank, develop]
+    branches: [NetTank,legacy,retro]
   pull_request:
-    branches: [main]
+    branches: [NetTank,legacy,retro]
 
 jobs:
   test:
