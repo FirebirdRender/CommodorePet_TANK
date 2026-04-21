@@ -8,12 +8,17 @@ coverage.out
 cmd/server/server
 /bot-go
 /bot-go.exe
+/bot-skilltest
 /bot-load
 /bot-load.exe
 
 # Bot-load harness run artifacts
 /bot-load-*.json
 /bot-load-*.log
+
+# Skill-test harness run artifacts
+/skilltest.csv
+/skilltest.json
 
 # WASM build output (rebuilt from source)
 web/game.wasm
