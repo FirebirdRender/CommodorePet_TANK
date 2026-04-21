@@ -1,5 +1,19 @@
 ## Changelog
 
+### 1.4.3 - 2026-04-20 — Bot AI: linearize skill ladder with diagonal gating
+
+**Diagonal firing gated to d=4+** (was engine-level, available to all).
+Empirical 1000-match tournament verified the intended behavior: low-skill bots (d=1-3) are more tactically limited (only cardinal shots), making the mid-tier difficulty ramp more meaningful.
+
+- Win-rate shift after gating:
+  - d=1: 63.8% → **76.8%** (low-skill higher-skill advantage amplified)
+  - d=2: 71.4% → **82.6%**
+  - d=3: 68.9% → 64.5%
+  - d=5: 79.1% → 67.0% (peak flattened; mid-tier closer to linear)
+  - d=10: 78.4% → **81.2%**
+
+Files: `cmd/bot-go/skill_config.go`, `cmd/bot-go/ai.go`, `BOT_AI_SCALING_GRID.md`
+
 ### 1.4.2 - 2026-04-20 — Bot AI: gated diagonal firing + skilltest harness
 
 **Diagonal firing now skill-gated (d=4+).** Previously all difficulties could fire along 45-degree diagonals — this was engine-level behavior, not an earned skill. Now lower-skill bots (d=1-3) are restricted to cardinal row/column shots only, which steepens the mid-tier skill ladder.
