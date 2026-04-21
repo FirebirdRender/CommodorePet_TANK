@@ -103,6 +103,29 @@ type BotState struct {
 
 	lastLogLine string
 	decideCount int
+
+	skillConfig struct {
+		ThinkingDelayTicks          uint64
+		MinShotsForFire             int
+		EnableSelfDestructAwareness bool
+		EnableWallShootingUnstick   bool
+		StuckThreshold              int
+		EnableWallShootingHunt      bool
+		EnableProtectile            bool
+		ProtectileScalar            int
+		EnableEvasion               bool
+		EngageRange                 int
+		DetectionRangeScalar        float64
+	}
+
+	// Stuck detection: track when bot hasn't moved for StuckThreshold decisions
+	stuckCounter int
+	stuckX       int
+	stuckY       int
+
+	// Protectile dodge: snapshot of shots from most recent full keyframe (OnTick).
+	// OnTickDelta carries no shots so we reuse the last snapshot (up to 1 tick stale).
+	lastShots []botsdk.ShotInfo
 }
 
 func NewBotState(playerID, difficulty, gridW, gridH int) *BotState {
@@ -116,6 +139,19 @@ func NewBotState(playerID, difficulty, gridW, gridH int) *BotState {
 	for i := range bs.grid {
 		bs.grid[i] = make([]int, gridW)
 	}
+	// Initialize skill config from table
+	skill := _SKILL_TABLE[difficulty]
+	bs.skillConfig.ThinkingDelayTicks = skill.ThinkingDelayTicks
+	bs.skillConfig.MinShotsForFire = skill.MinShotsForFire
+	bs.skillConfig.EnableWallShootingUnstick = skill.EnableWallShootingUnstick
+	bs.skillConfig.StuckThreshold = skill.StuckThreshold
+	bs.skillConfig.EnableWallShootingHunt = skill.EnableWallShootingHunt
+	bs.skillConfig.EnableProtectile = skill.EnableProtectile
+	bs.skillConfig.ProtectileScalar = skill.ProtectileScalar
+	bs.skillConfig.EnableEvasion = skill.EnableEvasion
+	bs.skillConfig.EngageRange = skill.EngageRange
+	bs.skillConfig.DetectionRangeScalar = skill.DetectionRangeScalar
+	bs.skillConfig.EnableSelfDestructAwareness = skill.EnableSelfDestructAwareness
 	return bs
 }
 
@@ -143,22 +179,20 @@ func (bs *BotState) ApplyDelta(changes []botsdk.CellChange) {
 }
 
 const (
-	moveAckTimeoutTicks    = 30
-	fireAckTimeoutTicks    = 10
-	mineAckTimeoutTicks    = 10
-	hysteresisTicks        = 2
-	thinkingDelayStepTicks = 6
-	thinkingDelayMaxLevel  = 10
+	moveAckTimeoutTicks = 30
+	fireAckTimeoutTicks = 10
+	mineAckTimeoutTicks = 10
+	hysteresisTicks     = 2
 )
 
 func thinkingDelayTicks(difficulty int) uint64 {
-	if difficulty >= thinkingDelayMaxLevel {
-		return 0
-	}
 	if difficulty < 1 {
 		difficulty = 1
 	}
-	return uint64((thinkingDelayMaxLevel - difficulty) * thinkingDelayStepTicks)
+	if difficulty > 10 {
+		difficulty = 10
+	}
+	return _SKILL_TABLE[difficulty].ThinkingDelayTicks
 }
 
 // Direction constants mirror engine/constants.go; the SDK's TankInfo.Dir
@@ -292,7 +326,7 @@ func (bs *BotState) Decide(tick uint64, tanks [2]botsdk.TankInfo) []InputAction 
 	// where a code path sets nextActionTick but never resolves (e.g. ack-path
 	// regression, tick-counter wraparound, or a held-key state we haven't
 	// thought of yet) so a single defect cannot livelock the bot indefinitely.
-	if tick > bs.nextActionTick+thinkingDelayTicks(bs.Difficulty)*3 {
+	if tick > bs.nextActionTick+bs.skillConfig.ThinkingDelayTicks*3 {
 		bs.nextActionTick = 0
 	}
 
@@ -373,10 +407,49 @@ func (bs *BotState) startNewAction(tick uint64, my, enemy *botsdk.TankInfo) []In
 		return []InputAction{{Key: "mine", Action: "up"}}
 	}
 
+	// WAVE 8: Protectile dodge — highest priority survival action.
+	// Runs before any other decision and ignores nextActionTick gate.
+	if bs.skillConfig.EnableProtectile && len(bs.lastShots) > 0 && enemy != nil && enemy.Active {
+		if hasThreat, dodgeDir := bs.threateningShot(my, bs.lastShots); hasThreat && dodgeDir != "" {
+			return bs.commitMove(tick, my, dodgeDir)
+		}
+	}
+
 	if tick < bs.nextActionTick {
 		return nil
 	}
 
+	// WAVE 5: Wall-shooting to open line-of-sight to enemy.
+	// Only check straight lines; if a cellWall blocks the path, rotate toward it
+	// (or fire if already aimed) to destroy it.
+	if bs.skillConfig.EnableWallShootingHunt && enemy != nil && enemy.Active {
+		if found, wallX, wallY := bs.wallBetween(my, enemy); found {
+			desiredDir := dirToward(my.X, my.Y, wallX, wallY)
+			if desiredDir != 0 && my.Dir != desiredDir {
+				key := dirToKey(desiredDir)
+				if key != "" {
+					return bs.commitMove(tick, my, key)
+				}
+			}
+			// Already aimed at wall → fire to destroy it.
+			bs.pending = pending{
+				kind:        pendingFire,
+				key:         "fire",
+				emittedTick: tick,
+				beforeX:     my.X,
+				beforeY:     my.Y,
+				beforeDir:   my.Dir,
+				beforeShots: my.ShotsLeft,
+				beforeMines: my.MinesLeft,
+			}
+			bs.heldFire = true
+			bs.nextActionTick = tick + bs.skillConfig.ThinkingDelayTicks
+			bs.FireCount++
+			return []InputAction{{Key: "fire", Action: "down"}}
+		}
+	}
+
+	// NORMAL FIRE at enemy.
 	if enemy != nil && enemy.Active && bs.canFireWithLOS(my, enemy) {
 		desiredFireDir := dirToward(my.X, my.Y, enemy.X, enemy.Y)
 		if desiredFireDir != 0 && my.Dir != desiredFireDir {
@@ -385,22 +458,36 @@ func (bs *BotState) startNewAction(tick uint64, my, enemy *botsdk.TankInfo) []In
 				return bs.commitMove(tick, my, key)
 			}
 		}
-		bs.pending = pending{
-			kind:        pendingFire,
-			key:         "fire",
-			emittedTick: tick,
-			beforeX:     my.X,
-			beforeY:     my.Y,
-			beforeDir:   my.Dir,
-			beforeShots: my.ShotsLeft,
-			beforeMines: my.MinesLeft,
+
+		// WAVE 3: Self-destruct awareness — refuse last shot unless guaranteed kill.
+		if bs.skillConfig.EnableSelfDestructAwareness && my.ShotsLeft == 1 {
+			dx := enemy.X - my.X
+			dy := enemy.Y - my.Y
+			isAdjacent := abs(dx) <= 1 && abs(dy) <= 1
+			isAimed := my.Dir == desiredFireDir
+			if !isAdjacent || !isAimed {
+				// Skip fire; fall through to move/mine.
+			}
+		} else {
+			// Normal fire (or self-destruct disabled).
+			bs.pending = pending{
+				kind:        pendingFire,
+				key:         "fire",
+				emittedTick: tick,
+				beforeX:     my.X,
+				beforeY:     my.Y,
+				beforeDir:   my.Dir,
+				beforeShots: my.ShotsLeft,
+				beforeMines: my.MinesLeft,
+			}
+			bs.heldFire = true
+			bs.nextActionTick = tick + bs.skillConfig.ThinkingDelayTicks
+			bs.FireCount++
+			return []InputAction{{Key: "fire", Action: "down"}}
 		}
-		bs.heldFire = true
-		bs.nextActionTick = tick + thinkingDelayTicks(bs.Difficulty)
-		bs.FireCount++
-		return []InputAction{{Key: "fire", Action: "down"}}
 	}
 
+	// MINE.
 	if enemy != nil && enemy.Active && my.MinesLeft > 0 {
 		dist := abs(my.X-enemy.X) + abs(my.Y-enemy.Y)
 		if dist < 3 && rand.Float64() < 0.05 {
@@ -415,12 +502,55 @@ func (bs *BotState) startNewAction(tick uint64, my, enemy *botsdk.TankInfo) []In
 				beforeMines: my.MinesLeft,
 			}
 			bs.heldMine = true
-			bs.nextActionTick = tick + thinkingDelayTicks(bs.Difficulty)
+			bs.nextActionTick = tick + bs.skillConfig.ThinkingDelayTicks
 			bs.MineCount++
 			return []InputAction{{Key: "mine", Action: "down"}}
 		}
 	}
 
+	// WAVE 4: Stuck detection → shoot adjacent wall to get unstuck.
+	if bs.skillConfig.EnableWallShootingUnstick && enemy != nil && enemy.Active {
+		if my.X == bs.stuckX && my.Y == bs.stuckY {
+			bs.stuckCounter++
+		} else {
+			bs.stuckX, bs.stuckY = my.X, my.Y
+			bs.stuckCounter = 0
+		}
+		if bs.stuckCounter >= bs.skillConfig.StuckThreshold && bs.skillConfig.StuckThreshold > 0 {
+			bs.stuckCounter = 0
+			if dir := bs.findAdjacentWallDir(my); dir != "" {
+				// Map string direction to int direction constant.
+				var wallDirInt int
+				switch dir {
+				case "up": wallDirInt = dirUp
+				case "down": wallDirInt = dirDown
+				case "left": wallDirInt = dirLeft
+				case "right": wallDirInt = dirRight
+				}
+				if my.Dir == wallDirInt {
+					// Already aimed at wall → fire.
+					bs.pending = pending{
+						kind:        pendingFire,
+						key:         "fire",
+						emittedTick: tick,
+						beforeX:     my.X,
+						beforeY:     my.Y,
+						beforeDir:   my.Dir,
+						beforeShots: my.ShotsLeft,
+						beforeMines: my.MinesLeft,
+					}
+					bs.heldFire = true
+					bs.nextActionTick = tick + bs.skillConfig.ThinkingDelayTicks
+					bs.FireCount++
+					return []InputAction{{Key: "fire", Action: "down"}}
+				}
+				// Not aimed → rotate toward wall.
+				return bs.commitMove(tick, my, dir)
+			}
+		}
+	}
+
+	// MOVE toward enemy (or fallback).
 	var desired string
 	if enemy != nil && enemy.Active {
 		desired = bs.moveTowardEnemy(my, enemy)
@@ -431,6 +561,33 @@ func (bs *BotState) startNewAction(tick uint64, my, enemy *botsdk.TankInfo) []In
 		bs.lastDesiredDir = ""
 		bs.desiredStableTicks = 0
 		return nil
+	}
+
+	// WAVE 6: Evasive movement — dodge perpendicular when enemy aligned+in-range.
+	if bs.skillConfig.EnableEvasion && enemy != nil && enemy.Active {
+		dist := abs(my.X-enemy.X) + abs(my.Y-enemy.Y)
+		if dist <= bs.skillConfig.EngageRange && bs.isAlignedWith(my, enemy) {
+			// Pick perpendicular direction that avoids move into wall.
+			dx := my.X - enemy.X
+			dy := my.Y - enemy.Y
+			var perpA, perpB string
+			if dx == 0 {
+				perpA, perpB = "left", "right"
+			} else if dy == 0 {
+				perpA, perpB = "up", "down"
+			} else {
+				if (dx > 0 && dy > 0) || (dx < 0 && dy < 0) {
+					perpA, perpB = "up_right", "down_left"
+				} else {
+					perpA, perpB = "up_left", "down_right"
+				}
+			}
+			if !bs.isWall(my.X, my.Y, perpA) {
+				desired = perpA
+			} else if !bs.isWall(my.X, my.Y, perpB) {
+				desired = perpB
+			}
+		}
 	}
 
 	if desired == bs.lastDesiredDir {
@@ -445,15 +602,6 @@ func (bs *BotState) startNewAction(tick uint64, my, enemy *botsdk.TankInfo) []In
 
 	return bs.commitMove(tick, my, desired)
 }
-
-// commitMove emits the key-down for `key`, releasing any other held move key
-// first. Records pending so checkAck() can confirm via either position OR
-// direction change (rotation-only inputs do not move the tank).
-//
-// If `key` is already held, returns nil with no state change — the prior
-// pending entry remains the source of truth and will resolve via ack/timeout.
-// Re-emitting a held key would (a) duplicate input and (b) reset the ack
-// window every tick, masking timeouts forever.
 func (bs *BotState) commitMove(tick uint64, my *botsdk.TankInfo, key string) []InputAction {
 	if bs.heldMove == key {
 		return nil
@@ -477,7 +625,7 @@ func (bs *BotState) commitMove(tick uint64, my *botsdk.TankInfo, key string) []I
 		beforeMines: my.MinesLeft,
 	}
 	bs.heldMove = key
-	bs.nextActionTick = tick + thinkingDelayTicks(bs.Difficulty)
+	bs.nextActionTick = tick + bs.skillConfig.ThinkingDelayTicks
 	bs.MoveCount++
 	if !bs.firstActionDone {
 		bs.firstActionDone = true
@@ -541,6 +689,18 @@ func (bs *BotState) findTanks(tanks [2]botsdk.TankInfo) (my, enemy *botsdk.TankI
 // in 0.9.8 playtest: P2 traversed entire row aligned with P1, never fired).
 func (bs *BotState) canFireWithLOS(my, enemy *botsdk.TankInfo) bool {
 	if my.ShotsLeft <= 0 {
+		return false
+	}
+	// WAVE 2: Ammo conservation — refuse fire when low on ammo and enemy not adjacent
+	if bs.skillConfig.MinShotsForFire > 0 && my.ShotsLeft <= bs.skillConfig.MinShotsForFire {
+		if abs(my.X-enemy.X) > 1 || abs(my.Y-enemy.Y) > 1 {
+			return false
+		}
+	}
+	// WAVE 6/7: Detection range — refuse fire if enemy beyond effective range
+	maxRange := bs.maxFireRange()
+	manhattanDist := abs(my.X-enemy.X) + abs(my.Y-enemy.Y)
+	if manhattanDist > maxRange {
 		return false
 	}
 	myBarrelX, myBarrelY := barrelPos(my)
@@ -765,6 +925,29 @@ func (bs *BotState) fallbackMove(x, y int) string {
 	return ""
 }
 
+func (bs *BotState) findAdjacentWallDir(my *botsdk.TankInfo) string {
+	dirs := []string{"up", "down", "left", "right"}
+	for _, d := range dirs {
+		nx, ny := my.X, my.Y
+		switch d {
+		case "up":
+			ny--
+		case "down":
+			ny++
+		case "left":
+			nx--
+		case "right":
+			nx++
+		}
+		if ny >= 0 && ny < len(bs.grid) && nx >= 0 && nx < len(bs.grid[ny]) {
+			if bs.grid[ny][nx] == cellWall {
+				return d
+			}
+		}
+	}
+	return ""
+}
+
 func (bs *BotState) PendingDesc() string {
 	p := bs.pending
 	if p.kind == pendingNone {
@@ -805,4 +988,127 @@ func abs(x int) int {
 		return -x
 	}
 	return x
+}
+
+func (bs *BotState) maxFireRange() int {
+	const baseRange = 15
+	return int(float64(baseRange) * bs.skillConfig.DetectionRangeScalar)
+}
+
+func (bs *BotState) threateningShot(my *botsdk.TankInfo, shots []botsdk.ShotInfo) (bool, string) {
+	if !bs.skillConfig.EnableProtectile || bs.skillConfig.ProtectileScalar <= 0 {
+		return false, ""
+	}
+	scalar := bs.skillConfig.ProtectileScalar
+	for _, s := range shots {
+		if s.OwnerID == bs.MyID || !s.Active {
+			continue
+		}
+		dist := abs(my.X-s.X) + abs(my.Y-s.Y)
+		if dist > scalar {
+			continue
+		}
+		shotV := directionVector(s.Dir)
+		botFromShotX := my.X - s.X
+		botFromShotY := my.Y - s.Y
+		if shotV[0]*botFromShotX+shotV[1]*botFromShotY <= 0 {
+			continue
+		}
+		myV := directionVector(my.Dir)
+		shotFromBotX := s.X - my.X
+		shotFromBotY := s.Y - my.Y
+		if myV[0]*shotFromBotX+myV[1]*shotFromBotY <= 0 {
+			continue
+		}
+		dodgeDir := bs.perpendicularDodgeDir(my, s.Dir)
+		if dodgeDir != "" {
+			return true, dodgeDir
+		}
+	}
+	return false, ""
+}
+
+func directionVector(d int) [2]int {
+	switch d {
+	case dirUp:
+		return [2]int{0, -1}
+	case dirDown:
+		return [2]int{0, 1}
+	case dirLeft:
+		return [2]int{-1, 0}
+	case dirRight:
+		return [2]int{1, 0}
+	case dirUpLeft:
+		return [2]int{-1, -1}
+	case dirUpRight:
+		return [2]int{1, -1}
+	case dirDownLeft:
+		return [2]int{-1, 1}
+	case dirDownRight:
+		return [2]int{1, 1}
+	}
+	return [2]int{0, 0}
+}
+
+func (bs *BotState) perpendicularDodgeDir(my *botsdk.TankInfo, shotDir int) string {
+	var p1, p2 string
+	switch shotDir {
+	case dirUp, dirDown:
+		p1, p2 = "left", "right"
+	case dirLeft, dirRight:
+		p1, p2 = "up", "down"
+	case dirUpLeft, dirDownRight:
+		p1, p2 = "up_right", "down_left"
+	case dirUpRight, dirDownLeft:
+		p1, p2 = "up_left", "down_right"
+	}
+	if !bs.isWall(my.X, my.Y, p1) {
+		return p1
+	}
+	if !bs.isWall(my.X, my.Y, p2) {
+		return p2
+	}
+	return ""
+}
+
+// wallBetween scans the straight line (row, col, or 45° diagonal) between
+// my and enemy. Returns (found, wallX, wallY) if a cellWall is found.
+func (bs *BotState) wallBetween(my, enemy *botsdk.TankInfo) (bool, int, int) {
+	dx := enemy.X - my.X
+	dy := enemy.Y - my.Y
+	sameRow := my.Y == enemy.Y
+	sameCol := my.X == enemy.X
+	isDiag := dx != 0 && dy != 0 && abs(dx) == abs(dy)
+	if !sameRow && !sameCol && !isDiag {
+		return false, 0, 0
+	}
+
+	stepX := 0; if dx > 0 { stepX = 1 }; if dx < 0 { stepX = -1 }
+	stepY := 0; if dy > 0 { stepY = 1 }; if dy < 0 { stepY = -1 }
+
+	x, y := my.X, my.Y
+	for {
+		x += stepX
+		y += stepY
+		if x == enemy.X && y == enemy.Y {
+			break
+		}
+		if y >= 0 && y < len(bs.grid) && x >= 0 && x < len(bs.grid[y]) {
+			if bs.grid[y][x] == cellWall {
+				return true, x, y
+			}
+		}
+	}
+	return false, 0, 0
+}
+
+// isAlignedWith returns true if my and enemy share a row, column, or 45° diagonal.
+func (bs *BotState) isAlignedWith(my, enemy *botsdk.TankInfo) bool {
+	if my.X == enemy.X || my.Y == enemy.Y {
+		return true
+	}
+	if abs(my.X-enemy.X) == abs(my.Y-enemy.Y) {
+		return true
+	}
+	return false
 }

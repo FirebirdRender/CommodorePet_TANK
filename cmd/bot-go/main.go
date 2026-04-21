@@ -37,6 +37,7 @@ func main() {
 	skill := flag.Int("skill", -1, "Skill level 0-9 (overrides server difficulty for AI thinking-delay; -1 = use server-provided)")
 	exitAfterGameOver := flag.Bool("exit-after-gameover", false, "Exit cleanly after first GameOver instead of sending play_again (G-3 harness mode)")
 	summaryFile := flag.String("summary-file", "", "Write per-match JSON summary to this path on GameOver (only if -exit-after-gameover)")
+	botDebug := flag.Bool("botdebug", false, "Enable verbose bot decision logging to stderr")
 	flag.Parse()
 
 	var rcode string
@@ -88,7 +89,7 @@ func main() {
 	}
 
 	logTick := func(source string, tick uint64, tanks [2]botsdk.TankInfo, actions []InputAction) {
-		if botState == nil || !shouldLog(tickCount) {
+		if !*botDebug || botState == nil || !shouldLog(tickCount) {
 			return
 		}
 		var me, foe botsdk.TankInfo
@@ -120,7 +121,7 @@ func main() {
 			if err := client.SendInput(tick, a.Key, a.Action); err != nil {
 				if errors.Is(err, botsdk.ErrSendBufferFull) {
 					droppedInputs++
-					if droppedInputs%10 == 1 {
+					if *botDebug && droppedInputs%10 == 1 {
 						log.Printf("Send buffer full tick=%d (%s/%s) dropped_total=%d", tick, a.Key, a.Action, droppedInputs)
 					}
 					continue
@@ -136,6 +137,7 @@ func main() {
 		}
 		tickCount++
 		botState.LoadKeyframe(msg.Grid)
+		botState.lastShots = msg.Shots
 		actions := botState.Decide(msg.Tick, msg.Tanks)
 		logTick("kf", msg.Tick, msg.Tanks, actions)
 		sendActions(msg.Tick, actions)
