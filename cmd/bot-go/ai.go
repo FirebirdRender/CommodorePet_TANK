@@ -114,6 +114,7 @@ type BotState struct {
 		EnableProtectile            bool
 		ProtectileScalar            int
 		EnableEvasion               bool
+		EnableDiagonalFire          bool
 		EngageRange                 int
 		DetectionRangeScalar        float64
 	}
@@ -152,6 +153,7 @@ func NewBotState(playerID, difficulty, gridW, gridH int) *BotState {
 	bs.skillConfig.EngageRange = skill.EngageRange
 	bs.skillConfig.DetectionRangeScalar = skill.DetectionRangeScalar
 	bs.skillConfig.EnableSelfDestructAwareness = skill.EnableSelfDestructAwareness
+	bs.skillConfig.EnableDiagonalFire = skill.EnableDiagonalFire
 	return bs
 }
 
@@ -522,10 +524,14 @@ func (bs *BotState) startNewAction(tick uint64, my, enemy *botsdk.TankInfo) []In
 				// Map string direction to int direction constant.
 				var wallDirInt int
 				switch dir {
-				case "up": wallDirInt = dirUp
-				case "down": wallDirInt = dirDown
-				case "left": wallDirInt = dirLeft
-				case "right": wallDirInt = dirRight
+				case "up":
+					wallDirInt = dirUp
+				case "down":
+					wallDirInt = dirDown
+				case "left":
+					wallDirInt = dirLeft
+				case "right":
+					wallDirInt = dirRight
 				}
 				if my.Dir == wallDirInt {
 					// Already aimed at wall → fire.
@@ -743,14 +749,12 @@ func (bs *BotState) canFireWithLOS(my, enemy *botsdk.TankInfo) bool {
 		}
 		return true
 	}
-	// 45-degree diagonal alignment: walk one cell diagonally per step. Engine
-	// Shot.Step uses DirectionVectors {+/-1, +/-1} so a diagonal projectile
-	// traverses exactly the same cells we check here. Without this, two bots
-	// pacing at offsets like (12,10) vs (15,9) never get a fire opportunity
-	// even though the engine fully supports the shot.
 	dx := enemy.X - my.X
 	dy := enemy.Y - my.Y
-	if dx != 0 && dy != 0 && abs(dx) == abs(dy) {
+	if bs.skillConfig.EnableDiagonalFire && dx != 0 && dy != 0 && abs(dx) == abs(dy) {
+		// 45-degree diagonal alignment: walk one cell diagonally per step. Engine
+		// Shot.Step uses DirectionVectors {+/-1, +/-1} so a diagonal projectile
+		// traverses exactly the same cells we check here.
 		stepX := 1
 		if dx < 0 {
 			stepX = -1
@@ -1083,8 +1087,20 @@ func (bs *BotState) wallBetween(my, enemy *botsdk.TankInfo) (bool, int, int) {
 		return false, 0, 0
 	}
 
-	stepX := 0; if dx > 0 { stepX = 1 }; if dx < 0 { stepX = -1 }
-	stepY := 0; if dy > 0 { stepY = 1 }; if dy < 0 { stepY = -1 }
+	stepX := 0
+	if dx > 0 {
+		stepX = 1
+	}
+	if dx < 0 {
+		stepX = -1
+	}
+	stepY := 0
+	if dy > 0 {
+		stepY = 1
+	}
+	if dy < 0 {
+		stepY = -1
+	}
 
 	x, y := my.X, my.Y
 	for {

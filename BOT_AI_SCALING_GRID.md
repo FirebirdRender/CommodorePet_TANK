@@ -11,7 +11,7 @@ This document maps the `SkillConfig` parameters (defined in `cmd/bot-go/skill_co
 | **Thinking Delay** | Ticks of artificial hesitation before evaluating the next action. Lower = faster reactions. | d=1 (54 ticks) → d=10 (0 ticks) |
 | **Min Shots For Fire** | Minimum ammo reserve to allow a shot. `1` = fire freely; `2` = conserve; `0` = no limit at d=10. | d=1 (1) → d=5 (2) → d=10 (0) |
 | **Detection Range** | Percentage of max projectile range used for enemy detection and firing decisions. | d=1 (50%) → d=10 (100%) |
-| **Diagonal Firing** | Can fire along 45° diagonals when aligned with the enemy. All difficulties have this; it is engine-level behavior, not skill-gated. | d=1 (always) |
+| **Diagonal Firing** | Can fire along 45° diagonals when aligned with the enemy. Gated: disabled for d=1-3, unlocked at d=4 alongside wall-unstick. | d=4 |
 | **Self-Destruct Awareness** | Avoids firing the last shot unless in a guaranteed-kill position (adjacent + aimed). | d=5 |
 | **Wall-Shooting Unstick** | Detects when stuck (no movement for N ticks) and fires at adjacent walls to clear a path. | d=4 |
 | **Wall-Shooting Hunt** | Destroys walls blocking line-of-sight to the enemy to open firing lanes. | d=6 |
@@ -24,18 +24,18 @@ This document maps the `SkillConfig` parameters (defined in `cmd/bot-go/skill_co
 ## Parameter Grid
 
 ```
-Difficulty | Delay | MinShots | Detect% | Protec | Destruct | WallUnstick | WallHunt | Evasion | Engage
------------|-------|----------|---------|--------|----------|-------------|----------|---------|-------
-    1      |  54   |    1     |   50%   |   2    |    .     |      .      |    .     |    .    |   0
-    2      |  48   |    1     |   50%   |   2    |    .     |      .      |    .     |    .    |   0
-    3      |  42   |    1     |   55%   |   4    |    .     |      .      |    .     |    .    |   0
-    4      |  36   |    1     |   60%   |   4    |    .     |      X      |    .     |    .    |   0
-    5      |  30   |    2     |   65%   |   6    |    X     |      X      |    .     |    .    |   0
-    6      |  24   |    2     |   70%   |   6    |    X     |      X      |    X     |    .    |   0
-    7      |  18   |    2     |   80%   |   7    |    X     |      X      |    X     |    X    |   4
-    8      |  12   |    2     |   90%   |   7    |    X     |      X      |    X     |    X    |   4
-    9      |   6   |    2     |   95%   |   8    |    X     |      X      |    X     |    X    |   3
-   10      |   0   |    0     |  100%   |   8    |    X     |      X      |    X     |    X    |   3
+Difficulty | Delay | MinShots | Detect% | Protec | Destruct | WallUnstick | WallHunt | DiagFire | Evasion | Engage
+-----------|-------|----------|---------|--------|----------|-------------|----------|----------|---------|-------
+    1      |  54   |    1     |   50%   |   2    |    .     |      .      |    .     |    .     |    .    |   0
+    2      |  48   |    1     |   50%   |   2    |    .     |      .      |    .     |    .     |    .    |   0
+    3      |  42   |    1     |   55%   |   4    |    .     |      .      |    .     |    .     |    .    |   0
+    4      |  36   |    1     |   60%   |   4    |    .     |      X      |    .     |    X     |    .    |   0
+    5      |  30   |    2     |   65%   |   6    |    X     |      X      |    .     |    X     |    .    |   0
+    6      |  24   |    2     |   70%   |   6    |    X     |      X      |    X     |    X     |    .    |   0
+    7      |  18   |    2     |   80%   |   7    |    X     |      X      |    X     |    X     |    X    |   4
+    8      |  12   |    2     |   90%   |   7    |    X     |      X      |    X     |    X     |    X    |   4
+    9      |   6   |    2     |   95%   |   8    |    X     |      X      |    X     |    X     |    X    |   3
+   10      |   0   |    0     |  100%   |   8    |    X     |      X      |    X     |    X     |    X    |   3
 ```
 
 **Legend:** `.` = disabled / `X` = enabled
